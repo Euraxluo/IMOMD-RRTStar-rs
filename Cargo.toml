@@ -1,0 +1,17 @@
+[package]
+name = "IMOMD-RRTStar"
+version = "0.1.0"
+edition = "2021"
+description = "Informable Multi-Objective and Multi-Directional RRT* System for Path Planning.This work reimplemented an anytime iterative system to concurrently solve the multi-objective path planning problem and determine the visiting order of destinations using rust-lang.related paper:https://arxiv.org/abs/2205.14853"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lib]
+name = "IMOMD_RRTStar"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+pyo3 = { version = "0.17.1", features = ["extension-module"] }
+
+
+[package.metadata.maturin]
+python-source = "python"
