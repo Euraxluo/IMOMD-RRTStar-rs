@@ -9,8 +9,18 @@ description = "Informable Multi-Objective and Multi-Directional RRT* System for 
 name = "IMOMD_RRTStar"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "main"
+path = "src/main.rs"
+
 [dependencies]
-pyo3 = { version = "0.17.1", features = ["extension-module"] }
+clap = { version = "4.3.19", features = ["derive"] }
+env_logger = "0.10.0"
+log = "0.4.19"
+polars-core = {version="0.31.1",features=["fmt"]}
+pyo3 = { version = "0.18.1", features = ["extension-module"] }
+serde = { version = "1.0.180", features = ["derive"] }
+serde_yaml = "0.9.25"
 
 
 [package.metadata.maturin]
