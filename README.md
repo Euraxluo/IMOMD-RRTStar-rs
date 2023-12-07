@@ -1,4 +1,4 @@
-# IMOMD-RRTStar-rs
+# IMOMD-RRTStar-rs (WIP)
 
 Informable Multi-Objective and Multi-Directional RRT* System for Path Planning.This work reimplemented an anytime
 iterative system to concurrently solve the multi-objective path planning problem and determine the visiting order of
