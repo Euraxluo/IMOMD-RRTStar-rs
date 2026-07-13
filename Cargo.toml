@@ -2,9 +2,8 @@
 name = "IMOMD-RRTStar"
 version = "0.1.0"
 edition = "2021"
-description = "Informable Multi-Objective and Multi-Directional RRT* System for Path Planning.This work reimplemented an anytime iterative system to concurrently solve the multi-objective path planning problem and determine the visiting order of destinations using rust-lang.related paper:https://arxiv.org/abs/2205.14853"
+description = "Informable Multi-Objective and Multi-Directional RRT* System for Path Planning — Rust reimplementation of https://arxiv.org/abs/2205.14853"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
 name = "IMOMD_RRTStar"
 crate-type = ["cdylib", "rlib"]
@@ -13,15 +12,30 @@ crate-type = ["cdylib", "rlib"]
 name = "main"
 path = "src/main.rs"
 
+[features]
+default = []
+python = ["dep:pyo3"]
+extension-module = ["python", "pyo3/extension-module"]
+pyarrow-demo = ["polars-core"]
+
 [dependencies]
 clap = { version = "4.3.19", features = ["derive"] }
+crossbeam-channel = "0.5"
 env_logger = "0.10.0"
 log = "0.4.19"
-polars-core = {version="0.31.1",features=["fmt"]}
-pyo3 = { version = "0.18.1", features = ["extension-module"] }
+parking_lot = "0.12"
+polars-core = { version = "0.31.1", features = ["fmt"], optional = true }
+pyo3 = { version = "0.18.1", optional = true }
+rand = "0.8"
+rayon = "1.10"
+rustc-hash = "2"
 serde = { version = "1.0.180", features = ["derive"] }
 serde_yaml = "0.9.25"
+thiserror = "1"
 
+[dev-dependencies]
+approx = "0.5"
 
 [package.metadata.maturin]
 python-source = "python"
+features = ["python", "extension-module"]

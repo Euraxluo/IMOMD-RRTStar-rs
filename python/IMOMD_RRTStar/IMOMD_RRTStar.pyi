@@ -1,13 +1,30 @@
-from typing import Any, Union, List, Iterator, Tuple, Dict
-import pyarrow as pa
+from typing import List
 
+class FakeMap:
+    @staticmethod
+    def load(map_type: int) -> "AdjacencyGraph": ...
 
-def sum_as_string(a: int, b: int) -> str: ...
+class AdjacencyGraph:
+    @property
+    def node_count(self) -> int: ...
 
+class PlanningResult:
+    path: List[int]
+    visit_order: List[int]
+    cost: float
+    explored_nodes: int
+    elapsed_secs: float
 
-def process_pyarrow_table(df: pa.Table) -> int: ...
-
-
-__all__ = ["sum_as_string",
-           "process_pyarrow_table"
-           ]
+class ImomdPlanner:
+    def __init__(
+        self,
+        graph: AdjacencyGraph,
+        source: int,
+        objectives: List[int],
+        target: int,
+        max_iter: int = 1_000_000,
+        max_time_secs: int = 60,
+        goal_bias: float = 1.0,
+    ) -> None: ...
+    def run_for(self, seconds: float) -> PlanningResult: ...
+    def tree_count(self) -> int: ...
