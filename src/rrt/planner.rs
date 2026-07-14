@@ -64,6 +64,11 @@ pub struct ImomdRrtStar {
 }
 
 impl ImomdRrtStar {
+    /// Shared ownership handle for the active road graph.
+    pub fn graph_arc(&self) -> Arc<AdjacencyGraph> {
+        Arc::clone(&self.graph)
+    }
+
     pub fn new(
         graph: Arc<AdjacencyGraph>,
         destinations: Destinations,
@@ -275,6 +280,46 @@ impl ImomdRrtStar {
         self.finished
     }
 
+    /// Clear the terminal flag so another anytime budget slice can run.
+    /// When exploration has already exhausted destination trees, reopen them
+    /// with a fresh uniform sampling bias so RRT* can keep expanding/rewiring.
+    pub fn resume_search(&mut self) {
+        let reopen = self.exploration_exhausted();
+        self.finished = false;
+        // Measure wall-clock `max_time` from this resume so pause/resume slices
+        // are not killed by the original planner creation timestamp.
+        self.start_time = Instant::now();
+        if reopen {
+            self.reopen_exploration();
+        }
+    }
+
+    fn reopen_exploration(&mut self) {
+        let n = self.tree_layers.len();
+        if n <= 1 {
+            return;
+        }
+        let uniform = 1.0 / (n - 1) as f64;
+        for i in 0..n {
+            self.tree_layers[i].is_done = false;
+            for j in 0..n {
+                self.probability_matrix[i][j] = if i == j { 0.0 } else { uniform };
+            }
+        }
+    }
+
+    /// Run additional RTSP polishing passes on the current best path.
+    pub fn refine_solution(&mut self, rounds: usize) {
+        for _ in 0..rounds {
+            self.solve_rtsp(true);
+        }
+    }
+
+    /// True when every destination tree has stopped expanding and a path exists.
+    pub fn exploration_exhausted(&self) -> bool {
+        self.best.is_some() && self.tree_layers.iter().all(|tree| tree.is_done)
+    }
+
     pub fn step(&mut self) -> Result<StepResult> {
         if self.finished {
             return Ok(StepResult {
@@ -288,18 +333,29 @@ impl ImomdRrtStar {
         let previous_best_cost = self.best.as_ref().map(|best| best.cost);
         self.expand_tree_layers();
 
-        let solver_checkpoint = self.iteration.is_multiple_of(100);
-        if solver_checkpoint {
+        // Publish a feasible path as soon as trees connect, then keep refining
+        // whenever the inter-tree distance matrix improves.
+        if !was_connected && self.is_connected_graph {
+            self.solve_rtsp(true);
+        } else if self.is_distance_matrix_updated && self.iteration.is_multiple_of(20) {
+            self.solve_rtsp(false);
+        } else if self.iteration.is_multiple_of(100) {
             self.solve_rtsp(false);
         }
 
         self.iteration += 1;
-        let expansion_finished = solver_checkpoint
+        let expansion_finished = self.iteration.is_multiple_of(100)
             && self.is_connected_graph
             && self.best.is_some()
             && self.tree_layers.iter().all(|tree| tree.is_done);
-        if expansion_finished
-            || self.iteration > self.config.general.max_iter
+        // Anytime: do not terminate solely because sampling bias says trees are
+        // "done". Keep expanding/rewiring until max_iter / max_time.
+        if expansion_finished {
+            for _ in 0..3 {
+                self.solve_rtsp(true);
+            }
+        }
+        if self.iteration > self.config.general.max_iter
             || self.start_time.elapsed().as_secs() >= self.config.general.max_time
         {
             for _ in 0..10 {
@@ -516,7 +572,9 @@ impl ImomdRrtStar {
     fn expand_tree_layers(&mut self) {
         let count = self.tree_layers.len();
         for i in 0..count {
-            if self.tree_layers[i].expandables.is_empty() || self.tree_layers[i].is_done {
+            // Keep expanding even after `is_done` so anytime search can rewire
+            // toward better paths; `is_done` only reflects sampling-bias state.
+            if self.tree_layers[i].expandables.is_empty() {
                 continue;
             }
             let random_point = self.select_random_vertex(i);
@@ -540,13 +598,15 @@ impl ImomdRrtStar {
     fn select_random_vertex(&mut self, tree_idx: usize) -> Location {
         let tree = &self.tree_layers[tree_idx];
         if self.rng.gen::<f64>() < self.config.rrt_params.goal_bias {
+            let probs = &self.probability_matrix[tree_idx];
             let mut rand_val = self.rng.gen::<f64>();
             let mut i = 0;
-            while rand_val >= 0.0 {
-                rand_val -= self.probability_matrix[tree_idx][i];
+            while i < probs.len() && rand_val >= 0.0 {
+                rand_val -= probs[i];
                 i += 1;
             }
-            let random_dest = self.tree_layers[i - 1].root;
+            let dest_idx = i.saturating_sub(1).min(self.tree_layers.len().saturating_sub(1));
+            let random_dest = self.tree_layers[dest_idx].root;
             let mut random_point = self.graph.location(random_dest).unwrap().clone();
 
             if self.tree_layers[tree_idx].is_visited(random_dest) {
@@ -1250,14 +1310,17 @@ rtsp_settings: {{ shortcut: 1, swapping: 1, genetic: 0, ga: {{ random_seed: 0, m
                 step.status,
                 StepStatus::Connected | StepStatus::PathImproved
             );
+            if planner.exploration_exhausted() && planner.best_solution().is_some() {
+                break;
+            }
             if planner.is_finished() {
                 break;
             }
         }
         assert!(saw_transition, "expected a connection or path improvement");
         assert!(
-            planner.is_finished(),
-            "finite fake graph should be exhausted"
+            planner.exploration_exhausted() || planner.is_finished(),
+            "finite fake graph should exhaust destination trees or hit limits"
         );
         assert!(planner.best_solution().is_some());
     }

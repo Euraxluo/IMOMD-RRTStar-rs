@@ -80,3 +80,9 @@ docs/_build/
 
 # Pyenv
 .python-version
+# Brainstorm visual companion
+.superpowers/
+
+# Local downloads, OSM extracts, reference checkouts, scratch PDFs
+/tmp/*
+!/tmp/.gitkeep

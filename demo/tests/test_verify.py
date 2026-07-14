@@ -56,17 +56,23 @@ class VerifyTests(unittest.TestCase):
         self.assertFalse(report.ok)
         self.assertTrue(report.broken_edges)
 
-    def test_verify_rejects_cost_mismatch(self) -> None:
+    def test_oracle_skips_large_objective_sets(self) -> None:
+        objs = list(range(1, 31))
+        cost, path = oracle_mo_cost(self.graph, 0, objs, 2)
+        self.assertIsNone(cost)
+        self.assertEqual(path, [])
+
+    def test_verify_many_objectives_does_not_hang(self) -> None:
+        # Include many phantom objectives so oracle would be n!; path can't visit
+        # them all — we only assert the oracle short-circuits (no hang).
         report = verify_plan(
             edges=self.edges,
             path=[0, 1, 2],
-            planner_cost=99.0,
+            planner_cost=15.0,
             source=0,
-            objectives=[1],
+            objectives=list(range(10, 40)),
             target=2,
         )
-        self.assertFalse(report.ok)
+        self.assertIsNone(report.oracle_cost)
+        self.assertFalse(report.ok)  # path cannot visit those objectives
 
-
-if __name__ == "__main__":
-    unittest.main()

@@ -8,6 +8,7 @@ pub mod experiment;
 pub mod geo;
 pub mod graph;
 pub mod map;
+pub mod navigation;
 pub mod prelude;
 pub mod rrt;
 pub mod rtsp;

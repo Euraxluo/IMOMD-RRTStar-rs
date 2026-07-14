@@ -2,7 +2,15 @@
 name = "IMOMD-RRTStar"
 version = "0.1.0"
 edition = "2021"
-description = "Informable Multi-Objective and Multi-Directional RRT* System for Path Planning — Rust reimplementation of https://arxiv.org/abs/2205.14853"
+description = "Informable Multi-Objective and Multi-Directional RRT* — Rust reproduction of https://arxiv.org/abs/2205.14853"
+license = "Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/Euraxluo/IMOMD-RRTStar-rs"
+homepage = "https://github.com/Euraxluo/IMOMD-RRTStar-rs"
+documentation = "https://github.com/Euraxluo/IMOMD-RRTStar-rs#readme"
+keywords = ["path-planning", "rrt", "motion-planning", "anytime", "robotics"]
+categories = ["science", "algorithms"]
+authors = ["Euraxluo <euraxluo@outlook.com>"]
 
 [lib]
 name = "IMOMD_RRTStar"

@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import asyncio
 import os
+import threading
 from contextlib import asynccontextmanager
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from IMOMD_RRTStar import ImomdPlanner, TrafficGraph
+from IMOMD_RRTStar import NavigationSession, TrafficGraph
 
 from .v2x_sim import V2xSimulator, pick_spread_destinations
 from .verify import verify_plan
@@ -60,22 +61,66 @@ class MapSwitchBody(BaseModel):
     map_key: str
 
 
+class EgoBody(BaseModel):
+    node: int | None = None
+    lat: float | None = None
+    lon: float | None = None
+
+
+def _updates_to_result(updates: list[dict[str, Any]], session: NavigationSession) -> dict[str, Any]:
+    best = session.best()
+    chosen: dict[str, Any] | None = None
+    for update in reversed(updates):
+        if update.get("path"):
+            chosen = update
+            break
+    if chosen is None and best is not None:
+        return {
+            "path": list(best.path),
+            "cost": float(best.cost),
+            "explored_nodes": int(best.explored_nodes),
+            "elapsed_secs": float(best.elapsed_secs),
+            "visit_order": list(best.visit_order),
+            "replan_mode": "resume",
+            "tree_update": None,
+            "updates": updates,
+        }
+    if chosen is None:
+        raise ValueError("no feasible route under current conditions")
+    tree = chosen.get("tree_update")
+    return {
+        "path": chosen["path"],
+        "cost": chosen["cost"],
+        "explored_nodes": chosen.get("explored_nodes") or 0,
+        "elapsed_secs": 0.0,
+        "visit_order": chosen.get("visit_order") or [],
+        "replan_mode": chosen.get("replan_mode") or "resume",
+        "tree_update": tree,
+        "updates": updates,
+        "ego_node": chosen.get("ego_node"),
+        "algorithm_id": chosen.get("algorithm_id") or session.algorithm_id,
+    }
+
+
 @dataclass
 class DemoState:
     traffic: TrafficGraph
     map_name: str
     map_key: str
     destinations: DestinationsBody = field(default_factory=DestinationsBody)
-    planner: ImomdPlanner | None = None
-    planner_destinations: tuple[int, tuple[int, ...], int] | None = None
+    session: NavigationSession = field(default_factory=lambda: NavigationSession("imomd"))
     traffic_revision: int = 0
-    planner_revision: int = -1
     last_replan_mode: str = "fresh"
     last_update_stats: dict[str, int] | None = None
     last_result: dict[str, Any] | None = None
+    cost_history: list[dict[str, Any]] = field(default_factory=list)
     v2x: V2xSimulator | None = None
     auto_v2x: bool = False
+    auto_anytime: bool = True
     event_log: list[str] = field(default_factory=list)
+    ego_node: int | None = None
+    pending_traffic: bool = False
+    seeded: bool = False
 
     def log(self, msg: str) -> None:
         self.event_log.append(msg)
@@ -83,92 +128,101 @@ class DemoState:
 
     def traffic_changed(self) -> None:
         self.traffic_revision += 1
+        self.pending_traffic = True
+
+    def _sync_graph(self) -> None:
+        self.session.set_graph(self.traffic.materialize())
+
+    def _publish(self, updates: list[dict[str, Any]]) -> dict[str, Any]:
+        payload = _updates_to_result(updates, self.session)
+        self.last_replan_mode = payload["replan_mode"]
+        self.last_update_stats = payload.get("tree_update")
+        self.ego_node = payload.get("ego_node", self.session.ego_node)
+        self.last_result = payload
+        self.seeded = True
+        for update in updates:
+            cost = update.get("cost")
+            if cost is None:
+                continue
+            self.cost_history.append(
+                {
+                    "sequence": update.get("sequence"),
+                    "cost": cost,
+                    "reason": update.get("reason"),
+                }
+            )
+        self.cost_history = self.cost_history[-80:]
+        return payload
 
     def replan(self, seconds: float = 1.0) -> dict[str, Any]:
-        graph = self.traffic.materialize()
         d = self.destinations
-        destination_key = (d.source, tuple(d.objectives), d.target)
-        self.last_update_stats = None
-        if self.planner is None or self.planner_destinations != destination_key:
-            self.planner = ImomdPlanner(
-                graph,
-                d.source,
-                d.objectives,
-                d.target,
-                max_iter=200_000,
-                max_time_secs=30,
-                goal_bias=1.0,
+        # Only push a new graph snapshot when seeding or traffic actually changed.
+        # Calling set_graph on every continue_search bumps graph_revision and
+        # forces warm-start, which destroys anytime tree accumulation.
+        if not self.seeded:
+            self._sync_graph()
+            updates = self.session.set_destinations(
+                d.source, d.objectives, d.target, budget_secs=seconds
             )
-            self.planner_destinations = destination_key
-            self.planner_revision = self.traffic_revision
-            self.last_replan_mode = "fresh"
-        elif self.planner_revision != self.traffic_revision:
-            stats = self.planner.update_graph(graph)
-            self.planner_revision = self.traffic_revision
-            self.last_replan_mode = "warm_start"
-            self.last_update_stats = {
-                "previous_tree_nodes": stats.previous_tree_nodes,
-                "retained_tree_nodes": stats.retained_tree_nodes,
-                "pruned_tree_nodes": stats.pruned_tree_nodes,
-            }
+        elif self.pending_traffic:
+            self._sync_graph()
+            updates = self.session.on_traffic_changed(budget_secs=seconds)
+            self.pending_traffic = False
         else:
-            self.last_replan_mode = "resume"
+            updates = self.session.continue_search(budget_secs=seconds)
+        return self._publish(updates)
 
-        try:
-            result = self.planner.run_for(seconds)
-        except ValueError:
-            # Never keep presenting an old route against a newly changed graph.
-            self.last_result = None
-            raise
-        payload = {
-            "path": result.path,
-            "cost": result.cost,
-            "explored_nodes": result.explored_nodes,
-            "elapsed_secs": result.elapsed_secs,
-            "visit_order": result.visit_order,
-            "replan_mode": self.last_replan_mode,
-            "tree_update": self.last_update_stats,
-        }
-        self.last_result = payload
-        return payload
+    def anytime_budget(self) -> float:
+        """Larger maps need longer slices or the UI never sees cost drops."""
+        nodes = int(self.traffic.node_count)
+        if nodes >= 5000:
+            return 1.2
+        if nodes >= 1500:
+            return 0.8
+        return 0.35
 
     def replace_destinations(
         self, destinations: DestinationsBody, seconds: float = 1.5
     ) -> dict[str, Any]:
-        """Plan a new route transactionally, then publish it on success."""
-        graph = self.traffic.materialize()
-        planner = ImomdPlanner(
-            graph,
+        self.destinations = destinations
+        self.pending_traffic = False
+        self._sync_graph()
+        updates = self.session.set_destinations(
             destinations.source,
             destinations.objectives,
             destinations.target,
-            max_iter=200_000,
-            max_time_secs=30,
-            goal_bias=1.0,
+            budget_secs=seconds,
         )
-        result = planner.run_for(seconds)
-        payload = {
-            "path": result.path,
-            "cost": result.cost,
-            "explored_nodes": result.explored_nodes,
-            "elapsed_secs": result.elapsed_secs,
-            "visit_order": result.visit_order,
-            "replan_mode": "fresh",
-            "tree_update": None,
-        }
-        self.destinations = destinations
-        self.planner = planner
-        self.planner_destinations = (
-            destinations.source,
-            tuple(destinations.objectives),
-            destinations.target,
-        )
-        self.planner_revision = self.traffic_revision
-        self.last_replan_mode = "fresh"
-        self.last_update_stats = None
-        self.last_result = payload
-        return payload
+        return self._publish(updates)
 
+    def apply_traffic_and_replan(self, seconds: float = 1.0) -> dict[str, Any]:
+        self._sync_graph()
+        updates = self.session.on_traffic_changed(budget_secs=seconds)
+        self.pending_traffic = False
+        return self._publish(updates)
+
+    def set_ego(self, node: int, seconds: float = 1.0) -> dict[str, Any]:
+        self.ego_node = node
+        objectives = [o for o in self.destinations.objectives if o != node]
+        self.destinations = DestinationsBody(
+            source=node,
+            objectives=objectives,
+            target=self.destinations.target,
+        )
+        updates = self.session.on_ego_moved(node, budget_secs=seconds)
+        return self._publish(updates)
+
+    def continue_anytime(self, seconds: float = 0.25) -> dict[str, Any] | None:
+        if not self.seeded:
+            return None
+        updates = self.session.continue_search(budget_secs=seconds)
+        if not any(u.get("path") for u in updates) and not any(
+            u.get("reason") in {"improved", "connected", "finished"} for u in updates
+        ):
+            # Still publish resume snapshots so UI can animate cost plateaus.
+            if not updates:
+                return None
+        return self._publish(updates)
     def snapshot(self) -> dict[str, Any]:
         view = self.traffic.export_view()
         path = (self.last_result or {}).get("path")
@@ -191,22 +245,50 @@ class DemoState:
             "view": view,
             "path": path,
             "cost": cost,
+            "visit_order": (self.last_result or {}).get("visit_order"),
             "verification": verification,
             "events": self.event_log,
             "auto_v2x": self.auto_v2x,
+            "auto_anytime": self.auto_anytime,
             "v2x_tick": self.v2x.tick if self.v2x is not None else 0,
             "replan_mode": self.last_replan_mode,
             "tree_update": self.last_update_stats,
             "traffic_revision": self.traffic_revision,
+            "ego_node": self.ego_node if self.ego_node is not None else d.source,
+            # Avoid touching NavigationSession here — PyO3 forbids concurrent
+            # borrows while continue_search mutates the planner on another thread.
+            "algorithm_id": (self.last_result or {}).get("algorithm_id") or "imomd",
+            "cost_history": self.cost_history,
+            "algorithms": [
+                {
+                    "id": "race",
+                    "name": "赛跑：贪心 + IMOMD + Exact",
+                    "available": True,
+                },
+                {"id": "imomd", "name": "IMOMD-RRT*（赛跑车道）", "available": True},
+                {"id": "greedy", "name": "Greedy（赛跑车道）", "available": True},
+                {
+                    "id": "exact",
+                    "name": "Exact Dijkstra+TSP（≤8 途经）",
+                    "available": True,
+                },
+                {"id": "lpa_star", "name": "LPA*", "available": False},
+                {"id": "d_star_lite", "name": "D* Lite", "available": False},
+            ],
         }
 
 
 def available_maps() -> list[dict[str, str]]:
-    return [
+    maps = [
+        {
+            "key": "chicago_mega",
+            "name": "Chicago Mega Grid 80×64",
+            "description": "芝加哥风格超大正交路网（含河岸桥梁与快速路），约 5000+ 节点",
+        },
         {
             "key": "city_large",
-            "name": "Synthetic City 24x18",
-            "description": "非 OSM 大规模网格/快速路任务，适合观察绕行与重规划",
+            "name": "Synthetic City 24×18",
+            "description": "非 OSM 中等网格/快速路任务，适合快速观察绕行",
         },
         {
             "key": "osm_or_fake",
@@ -219,6 +301,17 @@ def available_maps() -> list[dict[str, str]]:
             "description": "小型经典陷阱图，便于做算法回归检查",
         },
     ]
+    chicago_osm = ROOT / "tmp" / "osm_data" / "chicago_downtown.osm"
+    if chicago_osm.exists():
+        maps.insert(
+            1,
+            {
+                "key": "chicago_osm",
+                "name": "Chicago Downtown OSM",
+                "description": "真实 OSM 芝加哥市区路网（本地 tmp/osm_data/chicago_downtown.osm）",
+            },
+        )
+    return maps
 
 
 def _add_edge(edges: list[tuple[int, int, float]], a: int, b: int, weight: float) -> None:
@@ -269,8 +362,91 @@ def _load_city_map() -> tuple[TrafficGraph, str]:
     return TrafficGraph.from_edges(nodes, edges), "synthetic_city_24x18"
 
 
+def _load_chicago_mega_map() -> tuple[TrafficGraph, str]:
+    """Chicago-inspired mega orthogonal grid for large-scale anytime demos.
+
+    Layout cues (not a cadastral survey):
+    - dense rectangular street grid
+    - Chicago River corridor with sparse bridges
+    - Lake Michigan blank band on the east
+    - expressway corridors with lower travel cost
+    Coordinates are placed near real Chicago lat/lon for map feel.
+    """
+    rows = 64
+    cols = 80
+    lat0, lon0 = 41.78, -87.90
+    dlat, dlon = 0.0032, 0.0040
+    nodes: list[tuple[float, float]] = []
+    edges: list[tuple[int, int, float]] = []
+
+    def node_id(row: int, col: int) -> int:
+        return row * cols + col
+
+    # Lake Michigan: drop eastern shoreline columns from the graph entirely by
+    # leaving them unconnected later; still allocate nodes so ids stay dense.
+    lake_col = cols - 6
+    river_col = 34
+    river_bridges = {8, 16, 24, 32, 40, 48, 56}
+    ew_express = {12, 28, 44, 56}
+    ns_express = {10, 25, 45, 62}
+
+    for row in range(rows):
+        for col in range(cols):
+            # Slight downtown density warp around the Loop.
+            lat = lat0 + row * dlat
+            lon = lon0 + col * dlon
+            nodes.append((lat, lon))
+
+    for row in range(rows):
+        for col in range(cols):
+            if col >= lake_col:
+                continue
+            here = node_id(row, col)
+            if col + 1 < lake_col:
+                # River removes most east-west links except bridges.
+                crosses_river = col < river_col <= col + 1
+                if crosses_river and row not in river_bridges:
+                    pass
+                else:
+                    weight = 95.0
+                    if row in ew_express:
+                        weight = 48.0
+                    elif crosses_river:
+                        weight = 110.0  # bridge toll / delay
+                    _add_edge(edges, here, node_id(row, col + 1), weight)
+            if row + 1 < rows:
+                weight = 95.0
+                if col in ns_express:
+                    weight = 48.0
+                _add_edge(edges, here, node_id(row + 1, col), weight)
+            # Occasional diagonal alley shortcuts downtown.
+            if (
+                20 <= row <= 44
+                and 28 <= col <= 50
+                and row + 1 < rows
+                and col + 1 < lake_col
+                and (row + col) % 7 == 0
+            ):
+                _add_edge(edges, here, node_id(row + 1, col + 1), 120.0)
+
+    return (
+        TrafficGraph.from_edges(nodes, edges),
+        f"chicago_mega_{cols}x{rows}",
+    )
+
+
 def _load_traffic_map(map_key: str | None = None) -> tuple[TrafficGraph, str, str]:
     key = map_key or os.environ.get("DEMO_MAP", "city_large")
+    if key == "chicago_mega":
+        traffic, name = _load_chicago_mega_map()
+        return traffic, name, key
+    if key == "chicago_osm":
+        path = ROOT / "tmp" / "osm_data" / "chicago_downtown.osm"
+        if not path.exists():
+            raise ValueError(
+                "chicago_downtown.osm missing — run scripts/download_chicago_osm.py"
+            )
+        return TrafficGraph.load_osm(str(path)), path.name, key
     if key == "city_large":
         traffic, name = _load_city_map()
         return traffic, name, key
@@ -297,7 +473,16 @@ def _initialize_state(map_key: str | None = None) -> DemoState:
 
 state: DemoState
 state_lock = asyncio.Lock()
+planner_lock = threading.Lock()
 clients: set[WebSocket] = set()
+
+T = TypeVar("T")
+
+
+def _planner_call(fn: Callable[[], T]) -> T:
+    """Serialize planner mutations across asyncio.to_thread workers."""
+    with planner_lock:
+        return fn()
 
 
 async def _broadcast(payload: dict[str, Any]) -> None:
@@ -318,7 +503,8 @@ async def _v2x_loop() -> None:
     while True:
         await asyncio.sleep(3.0)
         async with state_lock:
-            if state.auto_v2x and state.v2x is not None:
+            run_v2x = state.auto_v2x and state.v2x is not None
+            if run_v2x:
                 event = state.v2x.next_event()
                 if event.kind == "clear":
                     state.traffic.clear_traffic()
@@ -326,24 +512,65 @@ async def _v2x_loop() -> None:
                     state.traffic.set_zone_traffic(event.nodes, event.level)
                 state.traffic_changed()
                 state.log(event.message)
-                try:
-                    result = await asyncio.to_thread(state.replan, 0.8)
-                    payload = {
-                        "type": "update",
-                        "event": event.message,
-                        "state": state.snapshot(),
-                        "result": result,
-                    }
-                except ValueError as exc:
-                    state.log(f"V2X: 当前路况下无可用路线: {exc}")
-                    payload = {
-                        "type": "no_route",
-                        "event": event.message,
-                        "state": state.snapshot(),
-                        "error": str(exc),
-                    }
+                event_message = event.message
             else:
                 payload = {"type": "heartbeat", "state": state.snapshot()}
+        if not run_v2x:
+            await _broadcast(payload)
+            continue
+        try:
+            result = await asyncio.to_thread(_planner_call, lambda: state.replan(0.8))
+            async with state_lock:
+                payload = {
+                    "type": "update",
+                    "event": event_message,
+                    "state": state.snapshot(),
+                    "result": result,
+                }
+        except ValueError as exc:
+            async with state_lock:
+                state.log(f"V2X: 当前路况下无可用路线: {exc}")
+                payload = {
+                    "type": "no_route",
+                    "event": event_message,
+                    "state": state.snapshot(),
+                    "error": str(exc),
+                }
+        await _broadcast(payload)
+
+
+async def _anytime_loop() -> None:
+    """Continuously improve the active plan and stream updates to clients."""
+    while True:
+        await asyncio.sleep(0.2)
+        async with state_lock:
+            if not state.auto_anytime or state.auto_v2x or not state.seeded:
+                continue
+            budget = state.anytime_budget()
+        try:
+            result = await asyncio.to_thread(
+                _planner_call, lambda b=budget: state.continue_anytime(b)
+            )
+        except ValueError:
+            continue
+        if result is None:
+            continue
+        async with state_lock:
+            # Lightweight stream: path/cost only; avoid rebuilding full OSM view
+            # on every slice (snapshot is still available via /api/state).
+            payload = {
+                "type": "plan_update",
+                "state": {
+                    "cost_history": state.cost_history[-40:],
+                    "auto_anytime": state.auto_anytime,
+                    "event_log": state.event_log[-8:],
+                    "node_count": state.traffic.node_count,
+                    "map_name": state.map_name,
+                    "replan_mode": state.last_replan_mode,
+                    "algorithm_id": (state.last_result or {}).get("algorithm_id"),
+                },
+                "result": result,
+            }
         await _broadcast(payload)
 
 
@@ -352,17 +579,30 @@ async def lifespan(_: FastAPI):
     global state
     state = _initialize_state()
     try:
-        result = await asyncio.to_thread(state.replan, 1.5)
-        state.log(f"Initial plan cost={result['cost']:.1f}m")
+        # Short first slice on purpose: first path should be suboptimal so the
+        # anytime loop can show continuous improvement (paper-style GIF).
+        # On multi-objective Chicago OSM, ~50ms leaves a clearly worse path that
+        # the next 0.8s slices typically cut by hundreds of meters.
+        initial_budget = 0.05 if state.traffic.node_count >= 1500 else 0.2
+        result = await asyncio.to_thread(
+            _planner_call, lambda: state.replan(initial_budget)
+        )
+        cost = result.get("cost")
+        if cost is not None:
+            state.log(f"Initial plan cost={cost:.1f}m (anytime will keep improving)")
+        else:
+            state.log("Initial plan: searching…")
     except ValueError as exc:
         state.log(f"Initial plan skipped: {exc}")
     simulation_task = asyncio.create_task(_v2x_loop(), name="imomd-v2x-simulator")
+    anytime_task = asyncio.create_task(_anytime_loop(), name="imomd-anytime")
     try:
         yield
     finally:
-        simulation_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await simulation_task
+        for task in (simulation_task, anytime_task):
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         clients.clear()
 
 
@@ -406,11 +646,15 @@ async def switch_map(body: MapSwitchBody) -> dict[str, Any]:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         next_state.auto_v2x = False
-        try:
-            result = await asyncio.to_thread(next_state.replan, 1.5)
-        except ValueError as exc:
-            next_state.log(f"Initial plan skipped: {exc}")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        budget = 0.05 if body.map_key in {"chicago_mega", "chicago_osm"} else 0.2
+    try:
+        result = await asyncio.to_thread(
+            _planner_call, lambda: next_state.replan(budget)
+        )
+    except ValueError as exc:
+        next_state.log(f"Initial plan skipped: {exc}")
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    async with state_lock:
         state = next_state
         return {"state": state.snapshot(), "result": result}
 
@@ -419,11 +663,15 @@ async def switch_map(body: MapSwitchBody) -> dict[str, Any]:
 async def set_destinations(body: DestinationsBody) -> dict[str, Any]:
     async with state_lock:
         state.log(f"Destinations updated: {body.model_dump()}")
-        try:
-            return await asyncio.to_thread(state.replace_destinations, body, 1.5)
-        except ValueError as exc:
+    try:
+        # Short budget so anytime can keep improving visibly after the first path.
+        return await asyncio.to_thread(
+            _planner_call, lambda: state.replace_destinations(body, 0.15)
+        )
+    except ValueError as exc:
+        async with state_lock:
             state.log(f"规划失败: {exc}")
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/destinations/auto")
@@ -434,12 +682,15 @@ async def auto_destinations() -> dict[str, Any]:
         src, objs, tgt = pick_spread_destinations(view["edges"], state.traffic.node_count)
         destinations = DestinationsBody(source=src, objectives=objs, target=tgt)
         state.log(f"智能推荐路线: {src} → {objs} → {tgt}")
-        try:
-            result = await asyncio.to_thread(state.replace_destinations, destinations, 1.5)
-            return {"destinations": destinations.model_dump(), **result}
-        except ValueError as exc:
+    try:
+        result = await asyncio.to_thread(
+            _planner_call, lambda: state.replace_destinations(destinations, 0.15)
+        )
+        return {"destinations": destinations.model_dump(), **result}
+    except ValueError as exc:
+        async with state_lock:
             state.log(f"规划失败: {exc}")
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/traffic/edge")
@@ -451,11 +702,12 @@ async def set_edge_traffic(body: EdgeTrafficBody) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         state.traffic_changed()
         state.log(f"Edge {body.from_node}-{body.to} → {body.level}")
-        try:
-            return await asyncio.to_thread(state.replan, 1.0)
-        except ValueError as exc:
+    try:
+        return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
+    except ValueError as exc:
+        async with state_lock:
             state.log(f"当前路况下无可用路线: {exc}")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/traffic/edges")
@@ -472,11 +724,12 @@ async def set_edges_traffic(body: EdgeListTrafficBody) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         state.traffic_changed()
         state.log(f"{len(body.edges)} selected lanes → {body.level}")
-        try:
-            return await asyncio.to_thread(state.replan, 1.0)
-        except ValueError as exc:
+    try:
+        return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
+    except ValueError as exc:
+        async with state_lock:
             state.log(f"当前路况下无可用路线: {exc}")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/traffic/zone")
@@ -488,11 +741,12 @@ async def set_zone_traffic(body: ZoneTrafficBody) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         state.traffic_changed()
         state.log(f"Zone {body.nodes} → {body.level}")
-        try:
-            return await asyncio.to_thread(state.replan, 1.0)
-        except ValueError as exc:
+    try:
+        return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
+    except ValueError as exc:
+        async with state_lock:
             state.log(f"当前路况下无可用路线: {exc}")
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/traffic/clear")
@@ -501,10 +755,10 @@ async def clear_traffic() -> dict[str, Any]:
         state.traffic.clear_traffic()
         state.traffic_changed()
         state.log("Traffic cleared")
-        try:
-            return await asyncio.to_thread(state.replan, 1.0)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/replan")
@@ -513,10 +767,12 @@ async def replan(seconds: float = 1.5) -> dict[str, Any]:
         raise HTTPException(status_code=422, detail="seconds must be within (0, 30]")
     async with state_lock:
         state.log("Manual replan triggered")
-        try:
-            return await asyncio.to_thread(state.replan, seconds)
-        except ValueError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        return await asyncio.to_thread(
+            _planner_call, lambda: state.replan(seconds)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.post("/api/v2x/auto")
@@ -525,6 +781,36 @@ async def toggle_auto(enabled: bool = True) -> dict[str, str]:
         state.auto_v2x = enabled
         state.log(f"Auto V2X {'ON' if enabled else 'OFF'}")
         return {"auto_v2x": str(enabled)}
+
+
+@app.post("/api/anytime")
+async def toggle_anytime(enabled: bool = True) -> dict[str, str]:
+    async with state_lock:
+        state.auto_anytime = enabled
+        state.log(f"Anytime improve {'ON' if enabled else 'OFF'}")
+        return {"auto_anytime": str(enabled)}
+
+
+@app.post("/api/ego")
+async def set_ego(body: EgoBody) -> dict[str, Any]:
+    async with state_lock:
+        try:
+            if body.node is not None:
+                node = body.node
+            elif body.lat is not None and body.lon is not None:
+                state._sync_graph()
+                node = state.session.snap_ego(body.lat, body.lon)
+            else:
+                raise HTTPException(status_code=400, detail="provide node or lat/lon")
+            state.log(f"Ego moved → node {node}")
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    try:
+        return await asyncio.to_thread(
+            _planner_call, lambda: state.set_ego(node, 1.0)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.websocket("/ws/v2x")

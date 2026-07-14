@@ -180,8 +180,10 @@ class TestUserStory05UpdateDestinations:
         expect(page.locator("#badge-src")).to_contain_text(f"#{source}")
 
         canvas.click(position=points[str(objective)])
-        expect(page.locator("#route-step")).to_contain_text("第 3 步")
         expect(page.locator("#badge-obj")).to_contain_text(f"#{objective}")
+        expect(page.locator("#btn-finish-objectives")).to_be_visible()
+        page.locator("#btn-finish-objectives").click()
+        expect(page.locator("#route-step")).to_contain_text("第 3 步")
 
         canvas.click(position=points[str(target)])
         expect(page.locator("#route-step")).to_contain_text("正在重规划")

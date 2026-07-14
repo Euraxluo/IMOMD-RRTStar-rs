@@ -10,19 +10,33 @@ features = ["python", "extension-module"]
 [project]
 name = "IMOMD-RRTStar"
 version = "0.1.0"
+description = "Rust/Python reproduction of Informable Multi-Objective and Multi-Directional RRT* (arXiv:2205.14853)"
+readme = "README.md"
 requires-python = ">=3.8,<3.14"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Euraxluo", email = "euraxluo@outlook.com" }]
+keywords = [
+    "path-planning",
+    "rrt-star",
+    "motion-planning",
+    "anytime",
+    "robotics",
+]
 classifiers = [
     "Programming Language :: Rust",
-    "License :: OSI Approved :: Apache License",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
     "Typing :: Typed",
-    'Operating System :: MacOS :: MacOS X',
-    'Operating System :: Microsoft :: Windows',
-    'Operating System :: POSIX :: Linux',
-    'Topic :: Algorithm',
-    'Programming Language :: Python :: 3.8',
-    'Programming Language :: Python :: 3.9',
-    'Programming Language :: Python :: 3.10',
-    'Programming Language :: Python :: 3.11',
-    'Programming Language :: Python :: 3.12',
-    'Programming Language :: Python :: 3.13',
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
+urls = { Homepage = "https://github.com/Euraxluo/IMOMD-RRTStar-rs", Repository = "https://github.com/Euraxluo/IMOMD-RRTStar-rs", "Paper" = "https://arxiv.org/abs/2205.14853" }

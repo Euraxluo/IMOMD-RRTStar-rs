@@ -107,10 +107,19 @@ def oracle_mo_cost(
     source: int,
     objectives: list[int],
     target: int,
-) -> tuple[float, list[int]]:
-    """Brute-force visit order + Dijkstra legs (exact for small objective count)."""
+    *,
+    max_brute_force_objectives: int = 6,
+) -> tuple[float | None, list[int]]:
+    """Brute-force visit order + Dijkstra legs (exact for small objective count).
+
+    Returns ``(None, [])`` when there are too many middle objectives — exact
+    search is ``n!`` permutations and would freeze the demo (30! ≈ 2.65e32).
+    """
     if not objectives:
         return dijkstra(graph, source, target)
+
+    if len(objectives) > max_brute_force_objectives:
+        return None, []
 
     best_cost = math.inf
     best_path: list[int] = []
@@ -172,14 +181,15 @@ def verify_plan(
     path_valid = not broken and math.isfinite(recomputed)
 
     oracle_cost, _ = oracle_mo_cost(graph, source, objectives, target)
+    oracle_available = oracle_cost is not None and math.isfinite(oracle_cost)
 
     cost_delta = None
     if planner_cost is not None and math.isfinite(recomputed):
         cost_delta = abs(planner_cost - recomputed)
 
     oracle_gap = None
-    if planner_cost is not None and math.isfinite(oracle_cost) and math.isfinite(planner_cost):
-        oracle_gap = planner_cost - oracle_cost
+    if planner_cost is not None and oracle_available and math.isfinite(planner_cost):
+        oracle_gap = planner_cost - float(oracle_cost)
 
     ok = (
         path_valid
@@ -188,11 +198,15 @@ def verify_plan(
         and visits
         and cost_delta is not None
         and cost_delta <= cost_tol
-        and oracle_gap is not None
-        and oracle_gap >= -cost_tol
+        and (not oracle_available or (oracle_gap is not None and oracle_gap >= -cost_tol))
     )
 
-    if ok and oracle_gap is not None and oracle_cost and oracle_gap > oracle_cost * oracle_tol:
+    if not oracle_available and ok:
+        msg = (
+            f"OK — path valid; exact Dijkstra oracle skipped "
+            f"({len(objectives)} objectives > 6, would be n!)"
+        )
+    elif ok and oracle_gap is not None and oracle_cost and oracle_gap > oracle_cost * oracle_tol:
         msg = (
             f"OK (anytime) — path valid; planner {planner_cost:.1f}m vs "
             f"Dijkstra oracle {oracle_cost:.1f}m (+{oracle_gap:.1f}m)"
@@ -205,7 +219,11 @@ def verify_plan(
         msg = "path does not visit all objectives"
     elif cost_delta is not None and cost_delta > cost_tol:
         msg = f"reported cost {planner_cost:.2f} != recomputed {recomputed:.2f}"
-    elif oracle_gap is not None and oracle_gap > oracle_cost * oracle_tol + cost_tol:
+    elif (
+        oracle_gap is not None
+        and oracle_cost is not None
+        and oracle_gap > oracle_cost * oracle_tol + cost_tol
+    ):
         msg = f"planner cost {planner_cost:.2f} exceeds oracle {oracle_cost:.2f} by {oracle_gap:.2f}m"
     else:
         msg = "verification failed"
@@ -214,7 +232,7 @@ def verify_plan(
         ok=ok,
         planner_cost=planner_cost,
         recomputed_cost=recomputed if math.isfinite(recomputed) else None,
-        oracle_cost=oracle_cost if math.isfinite(oracle_cost) else None,
+        oracle_cost=float(oracle_cost) if oracle_available else None,
         cost_delta=cost_delta,
         oracle_gap=oracle_gap,
         path_valid=path_valid,

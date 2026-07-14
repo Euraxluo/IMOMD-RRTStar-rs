@@ -22,7 +22,11 @@ class V2xEvent:
 
 
 def pick_spread_destinations(edges: list[dict], node_count: int) -> tuple[int, list[int], int]:
-    """Pick reachable source / one objective / target spread across the graph."""
+    """Pick reachable source / objectives / target spread across the graph.
+
+    Large maps use 2–3 objectives so IMOMD's multi-objective visit-order search
+    has room to improve over time (paper-style anytime). Tiny maps keep one.
+    """
     adj: dict[int, set[int]] = {i: set() for i in range(node_count)}
     for e in edges:
         if not isinstance(e.get("weight"), (int, float)) or e["weight"] == float("inf"):
@@ -45,7 +49,24 @@ def pick_spread_destinations(edges: list[dict], node_count: int) -> tuple[int, l
         return 0, [1], max(2, node_count - 1)
 
     pick = lambda frac: reachable[min(len(reachable) - 1, round((len(reachable) - 1) * frac))]
-    return start, [pick(0.33)], reachable[-1]
+    target = reachable[-1]
+    if node_count >= 1500 and len(reachable) >= 8:
+        objectives = [pick(0.25), pick(0.5), pick(0.75)]
+    elif node_count >= 400 and len(reachable) >= 5:
+        objectives = [pick(0.33), pick(0.66)]
+    else:
+        objectives = [pick(0.33)]
+    # Drop accidental duplicates / collisions with source/target.
+    cleaned: list[int] = []
+    for obj in objectives:
+        if obj in (start, target) or obj in cleaned:
+            continue
+        cleaned.append(obj)
+    if not cleaned:
+        cleaned = [pick(0.5)]
+        if cleaned[0] in (start, target):
+            cleaned = [reachable[len(reachable) // 2]]
+    return start, cleaned, target
 
 
 class V2xSimulator:
@@ -66,7 +87,7 @@ class V2xSimulator:
                 message="V2X: city-wide traffic report — congestion easing",
             )
 
-        zone_size = self.rng.randint(1, max(2, self.node_count // 20))
+        zone_size = self.rng.randint(1, max(2, min(36, self.node_count // 20)))
         nodes = self.rng.sample(range(self.node_count), k=min(zone_size, self.node_count))
         level = self.rng.choices(LEVELS, weights=WEIGHTS, k=1)[0]
         label = {

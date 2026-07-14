@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+title: "IMOMD-RRTStar-rs: A Rust Reproduction of Informable Multi-Objective and Multi-Directional RRT*"
+message: "If you use this software, please cite both the original research paper and this software repository."
+type: software
+authors:
+  - family-names: Euraxluo
+    email: euraxluo@outlook.com
+repository-code: "https://github.com/Euraxluo/IMOMD-RRTStar-rs"
+url: "https://github.com/Euraxluo/IMOMD-RRTStar-rs"
+abstract: >-
+  Open-source Rust reimplementation of Informable Multi-Objective and
+  Multi-Directional RRT* (IMOMD-RRT*), with a pause/resume anytime API,
+  Python bindings, OSM loaders, a pluggable realtime navigation session,
+  and a FastAPI V2X demonstration. Intended for algorithmic reproduction,
+  teaching, and experimental comparison against the original C++ reference.
+keywords:
+  - motion planning
+  - RRT*
+  - multi-objective path planning
+  - anytime algorithms
+  - Rust
+  - Python
+license: Apache-2.0
+version: 0.1.0
+date-released: "2026-07-14"
+references:
+  - type: article
+    authors:
+      - family-names: Huang
+        given-names: Jiunn-Kai
+      - family-names: Tan
+        given-names: Yingwen
+      - family-names: Lee
+        given-names: Dongmyeong
+      - family-names: Desaraju
+        given-names: Vishnu R.
+      - family-names: Grizzle
+        given-names: Jessy W.
+    title: "Informable Multi-Objective and Multi-Directional RRT* System for Robot Path Planning"
+    year: 2022
+    doi: "10.48550/arXiv.2205.14853"
+    url: "https://arxiv.org/abs/2205.14853"
+    notes: "ICRA 2023; original C++ implementation by UMich Biped Lab"

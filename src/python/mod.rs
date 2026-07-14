@@ -467,6 +467,171 @@ rtsp_settings: {{ shortcut: 1, swapping: 1, genetic: 1, ga: {{ random_seed: 0, m
     }
 }
 
+#[pyclass(name = "NavigationSession")]
+pub struct PyNavigationSession {
+    session: crate::navigation::NavigationSession,
+}
+
+fn plan_update_to_dict(py: Python<'_>, update: &crate::navigation::PlanUpdate) -> PyResult<PyObject> {
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("sequence", update.sequence)?;
+    dict.set_item(
+        "reason",
+        match update.reason {
+            crate::navigation::UpdateReason::Expanded => "expanded",
+            crate::navigation::UpdateReason::Connected => "connected",
+            crate::navigation::UpdateReason::Improved => "improved",
+            crate::navigation::UpdateReason::Finished => "finished",
+            crate::navigation::UpdateReason::EgoReseed => "ego_reseed",
+            crate::navigation::UpdateReason::TrafficWarmStart => "traffic_warm_start",
+            crate::navigation::UpdateReason::Fresh => "fresh",
+            crate::navigation::UpdateReason::Resume => "resume",
+            crate::navigation::UpdateReason::GreedyInit => "greedy_init",
+            crate::navigation::UpdateReason::ExactOptimal => "exact_optimal",
+        },
+    )?;
+    dict.set_item("path", update.path.clone())?;
+    dict.set_item("cost", update.cost)?;
+    dict.set_item("visit_order", update.visit_order.clone())?;
+    dict.set_item("explored_nodes", update.explored_nodes)?;
+    dict.set_item("replan_mode", &update.replan_mode)?;
+    dict.set_item("ego_node", update.ego_node)?;
+    dict.set_item("algorithm_id", &update.algorithm_id)?;
+    if let Some(stats) = update.tree_update {
+        let stats_dict = pyo3::types::PyDict::new(py);
+        stats_dict.set_item("previous_tree_nodes", stats.previous_tree_nodes)?;
+        stats_dict.set_item("retained_tree_nodes", stats.retained_tree_nodes)?;
+        stats_dict.set_item("pruned_tree_nodes", stats.pruned_tree_nodes)?;
+        dict.set_item("tree_update", stats_dict)?;
+    } else {
+        dict.set_item("tree_update", py.None())?;
+    }
+    Ok(dict.into())
+}
+
+#[pymethods]
+impl PyNavigationSession {
+    #[new]
+    #[pyo3(signature = (algorithm="imomd"))]
+    fn new(algorithm: &str) -> PyResult<Self> {
+        let plugin: Box<dyn crate::navigation::PlannerPlugin> = match algorithm {
+            "imomd" => Box::new(crate::navigation::ImomdPlugin::with_default_config()),
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unsupported navigation algorithm '{other}' (available: imomd)"
+                )));
+            }
+        };
+        Ok(Self {
+            session: crate::navigation::NavigationSession::new(plugin),
+        })
+    }
+
+    #[getter]
+    fn algorithm_id(&self) -> &str {
+        self.session.algorithm_id()
+    }
+
+    #[getter]
+    fn ego_node(&self) -> Option<usize> {
+        self.session.ego_node()
+    }
+
+    fn set_graph(&mut self, graph: &PyAdjacencyGraph) {
+        self.session.set_graph(Arc::clone(&graph.inner));
+    }
+
+    fn snap_ego(&self, latitude: f64, longitude: f64) -> PyResult<usize> {
+        self.session
+            .snap_ego(latitude, longitude)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(signature = (source, objectives, target, budget_secs=0.5))]
+    fn set_destinations(
+        &mut self,
+        py: Python<'_>,
+        source: usize,
+        objectives: Vec<usize>,
+        target: usize,
+        budget_secs: f64,
+    ) -> PyResult<Vec<PyObject>> {
+        let budget = std::time::Duration::from_secs_f64(budget_secs.max(0.0));
+        let updates = py
+            .allow_threads(|| {
+                self.session.handle(
+                    crate::navigation::DomainEvent::DestinationsSet {
+                        source,
+                        objectives,
+                        target,
+                    },
+                    budget,
+                )
+            })
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        updates
+            .iter()
+            .map(|u| plan_update_to_dict(py, u))
+            .collect()
+    }
+
+    #[pyo3(signature = (budget_secs=0.5))]
+    fn on_traffic_changed(&mut self, py: Python<'_>, budget_secs: f64) -> PyResult<Vec<PyObject>> {
+        let budget = std::time::Duration::from_secs_f64(budget_secs.max(0.0));
+        let updates = py
+            .allow_threads(|| {
+                self.session
+                    .handle(crate::navigation::DomainEvent::TrafficChanged, budget)
+            })
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        updates
+            .iter()
+            .map(|u| plan_update_to_dict(py, u))
+            .collect()
+    }
+
+    #[pyo3(signature = (ego_node, budget_secs=0.5))]
+    fn on_ego_moved(
+        &mut self,
+        py: Python<'_>,
+        ego_node: usize,
+        budget_secs: f64,
+    ) -> PyResult<Vec<PyObject>> {
+        let budget = std::time::Duration::from_secs_f64(budget_secs.max(0.0));
+        let updates = py
+            .allow_threads(|| {
+                self.session.handle(
+                    crate::navigation::DomainEvent::EgoMoved { ego_node },
+                    budget,
+                )
+            })
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        updates
+            .iter()
+            .map(|u| plan_update_to_dict(py, u))
+            .collect()
+    }
+
+    #[pyo3(signature = (budget_secs=0.3))]
+    fn continue_search(&mut self, py: Python<'_>, budget_secs: f64) -> PyResult<Vec<PyObject>> {
+        let budget = std::time::Duration::from_secs_f64(budget_secs.max(0.0));
+        let updates = py
+            .allow_threads(|| {
+                self.session
+                    .handle(crate::navigation::DomainEvent::ContinueSearch, budget)
+            })
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        updates
+            .iter()
+            .map(|u| plan_update_to_dict(py, u))
+            .collect()
+    }
+
+    fn best(&self) -> Option<PyPlanningResult> {
+        self.session.best().cloned().map(Into::into)
+    }
+}
+
 pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAlgorithmConfig>()?;
     m.add_class::<PyGraphUpdateStats>()?;
@@ -477,5 +642,6 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyAdjacencyGraph>()?;
     m.add_class::<PyImomdPlanner>()?;
     m.add_class::<PyPlanningResult>()?;
+    m.add_class::<PyNavigationSession>()?;
     Ok(())
 }

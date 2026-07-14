@@ -136,6 +136,38 @@ class ImomdPlanner:
     @property
     def is_finished(self) -> bool: ...
 
+class PlanUpdate(TypedDict, total=False):
+    sequence: int
+    reason: str
+    path: Optional[List[int]]
+    cost: Optional[float]
+    visit_order: Optional[List[int]]
+    explored_nodes: Optional[int]
+    replan_mode: str
+    ego_node: Optional[int]
+    algorithm_id: str
+    tree_update: Optional[dict]
+
+class NavigationSession:
+    def __init__(self, algorithm: str = "imomd") -> None: ...
+    @property
+    def algorithm_id(self) -> str: ...
+    @property
+    def ego_node(self) -> Optional[int]: ...
+    def set_graph(self, graph: AdjacencyGraph) -> None: ...
+    def snap_ego(self, latitude: float, longitude: float) -> int: ...
+    def set_destinations(
+        self,
+        source: int,
+        objectives: List[int],
+        target: int,
+        budget_secs: float = 0.5,
+    ) -> List[PlanUpdate]: ...
+    def on_traffic_changed(self, budget_secs: float = 0.5) -> List[PlanUpdate]: ...
+    def on_ego_moved(self, ego_node: int, budget_secs: float = 0.5) -> List[PlanUpdate]: ...
+    def continue_search(self, budget_secs: float = 0.3) -> List[PlanUpdate]: ...
+    def best(self) -> Optional[PlanningResult]: ...
+
 def plan_fake_map(
     map_type: int = -1,
     source: int = 0,
