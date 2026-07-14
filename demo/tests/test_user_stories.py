@@ -17,7 +17,7 @@ from playwright.sync_api import Page, expect
 BASE = os.environ.get("DEMO_BASE", "http://127.0.0.1:8000")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def base_url() -> str:
     import urllib.error
     import urllib.request
@@ -81,10 +81,15 @@ class TestUserStory01InitialLoad:
         assert cost is not None and cost > 0
 
     def test_destinations_synced_to_inputs(self, page: Page) -> None:
-        stats = page.locator("#stats").inner_text()
+        destination = page.evaluate(
+            "fetch('/api/state').then(r => r.json()).then(s => s.destinations)"
+        )
         src = page.locator("#src").input_value()
+        obj = page.locator("#obj").input_value()
         tgt = page.locator("#tgt").input_value()
-        assert src in stats and tgt in stats
+        assert int(src) == destination["source"]
+        assert int(obj) == destination["objectives"][0]
+        assert int(tgt) == destination["target"]
 
     def test_two_route_legs_have_distinct_colors(self, page: Page) -> None:
         colors = page.evaluate("window.__IMOMD_DEMO__.pathLegColors")
@@ -142,13 +147,18 @@ class TestUserStory05UpdateDestinations:
         tgt = page.locator("#tgt").input_value()
         obj = page.locator("#obj").input_value()
 
+        page.locator("details.advanced").click()
         page.locator("#btn-dest").click()
         page.wait_for_timeout(2000)
         cost = _cost_from_stats(page)
         assert cost is not None and cost > 0
 
-        stats = page.locator("#stats").inner_text()
-        assert src in stats and tgt in stats and obj in stats
+        destination = page.evaluate(
+            "fetch('/api/state').then(r => r.json()).then(s => s.destinations)"
+        )
+        assert int(src) == destination["source"]
+        assert int(obj) == destination["objectives"][0]
+        assert int(tgt) == destination["target"]
 
     def test_three_click_route_wizard_survives_heartbeat(self, page: Page) -> None:
         destination = page.evaluate(
@@ -222,8 +232,8 @@ class TestUserStory06PolygonLaneTraffic:
         if polygon is None:
             pytest.skip("no usable path on map")
 
-        page.select_option("#level", "jam")
         page.locator("#mode-traffic").click()
+        page.select_option("#level", "jam")
         canvas = page.locator("canvas#map")
         for point in polygon:
             canvas.click(position=point)
