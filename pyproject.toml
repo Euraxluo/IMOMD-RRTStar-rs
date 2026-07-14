@@ -1,22 +1,28 @@
 [build-system]
-requires = ["maturin>=0.13,<0.14"]
+requires = ["maturin>=1.4,<2"]
 build-backend = "maturin"
+
+[tool.maturin]
+module-name = "IMOMD_RRTStar._imomd_native"
+python-source = "python"
+features = ["python", "extension-module"]
 
 [project]
 name = "IMOMD-RRTStar"
-requires-python = ">=3.7"
+version = "0.1.0"
+requires-python = ">=3.8,<3.14"
 classifiers = [
     "Programming Language :: Rust",
     "License :: OSI Approved :: Apache License",
+    "Typing :: Typed",
     'Operating System :: MacOS :: MacOS X',
     'Operating System :: Microsoft :: Windows',
     'Operating System :: POSIX :: Linux',
     'Topic :: Algorithm',
-    'Programming Language :: Python :: 3.7',
     'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
+    'Programming Language :: Python :: 3.13',
 ]
-
-

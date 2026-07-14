@@ -1,5 +1,6 @@
 mod ana_star;
 mod bi_astar;
+mod common;
 
 pub use ana_star::AnaStar;
 pub use bi_astar::BiAstar;

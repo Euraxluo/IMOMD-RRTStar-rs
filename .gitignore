@@ -59,6 +59,16 @@ coverage.xml
 
 .DS_Store
 
+# Runtime experiment logs
+experiments/
+
+# Large OSM maps (download from C++ repo Google Drive bundle or scripts/download_osm_maps.py)
+tmp/imomd-cpp/osm_data/Seattle.osm
+tmp/imomd-cpp/osm_data/sanfrancisco_bugtrap.osm
+tmp/imomd-cpp/osm_data/quincy.osm
+tmp/imomd-cpp/osm_data/sanf.osm
+tmp/imomd-cpp/osm_data/san_pablo.osm
+
 # Sphinx documentation
 docs/_build/
 

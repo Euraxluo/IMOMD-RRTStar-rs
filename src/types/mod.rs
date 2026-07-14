@@ -44,6 +44,14 @@ pub struct PlanningResult {
     pub elapsed_secs: f64,
 }
 
+/// Summary of a dynamic graph update applied to an existing anytime search.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphUpdateStats {
+    pub previous_tree_nodes: usize,
+    pub retained_tree_nodes: usize,
+    pub pruned_tree_nodes: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum PlannerSystem {

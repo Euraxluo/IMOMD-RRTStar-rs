@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IMOMD-RRT* V2X Demo</title>
+      <link rel="stylesheet" href="/static/style.css?v=20260714b" />
+</head>
+<body>
+  <header>
+    <h1>IMOMD-RRT* · V2X 动态路况演示</h1>
+    <p>不用记节点编号 — 点击道路附近即可吸附选点，或一键智能推荐</p>
+  </header>
+
+  <main>
+    <section class="panel map-panel">
+      <div id="map-hint" class="map-hint">加载中…</div>
+      <canvas id="map" width="960" height="560"></canvas>
+      <div class="legend">
+        <span class="swatch src"></span> 起点
+        <span class="swatch obj"></span> 途经
+        <span class="swatch tgt"></span> 终点
+        <span class="swatch path-start"></span> 起点 → 途经
+        <span class="swatch path-end"></span> 途经 → 终点
+        <span class="swatch free"></span> 畅通
+        <span class="swatch slow"></span> 缓慢
+        <span class="swatch jam"></span> 拥堵
+      </div>
+    </section>
+
+    <aside class="panel side-panel">
+      <h2>路线规划</h2>
+      <p class="hint">任务：从<strong>起点</strong>出发，经过<strong>途经点</strong>，到达<strong>终点</strong></p>
+
+      <label class="map-picker">地图
+        <select id="map-select"></select>
+      </label>
+
+      <button id="btn-smart" class="btn-primary">智能推荐路线（推荐）</button>
+
+      <div class="mode-tabs">
+        <button id="mode-route" class="mode active" data-mode="route">点地图选路线</button>
+        <button id="mode-traffic" class="mode" data-mode="traffic">框选设置路况</button>
+      </div>
+
+      <div id="route-guide" class="guide-box">
+        <div id="route-step" class="guide-step">第 1 步：在地图上点击<strong>起点</strong>（绿色）</div>
+        <div class="route-badges">
+          <span id="badge-src" class="badge src">起点 —</span>
+          <span id="badge-obj" class="badge obj">途经 —</span>
+          <span id="badge-tgt" class="badge tgt">终点 —</span>
+        </div>
+        <button id="btn-reset-route" class="btn-ghost">重新选点</button>
+      </div>
+
+      <div id="traffic-guide" class="guide-box hidden">
+        <p class="hint">点击地图围出多边形，系统会选中区域内 lane；再应用路况并重规划</p>
+        <select id="level">
+          <option value="slow">缓慢 ×2.5</option>
+          <option value="jam">拥堵 ×5</option>
+          <option value="blocked">封闭</option>
+          <option value="free">恢复畅通</option>
+        </select>
+        <div class="traffic-count" id="selected-lane-count">0 条 lane</div>
+        <div class="row">
+          <button id="btn-traffic-apply">应用路况</button>
+          <button id="btn-traffic-undo">撤销顶点</button>
+          <button id="btn-traffic-reset">清空框选</button>
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary>高级：手动输入节点编号</summary>
+        <label>起点 <input id="src" type="number" readonly /></label>
+        <label>途经 <input id="obj" type="number" readonly /></label>
+        <label>终点 <input id="tgt" type="number" readonly /></label>
+        <button id="btn-dest">应用并重规划</button>
+      </details>
+
+      <h2>仿真控制</h2>
+      <div class="row">
+        <button id="btn-replan">立即重规划</button>
+        <button id="btn-clear">清除路况</button>
+      </div>
+      <div class="row">
+        <button id="btn-auto-on">开启 V2X 模拟</button>
+        <button id="btn-auto-off">停止 V2X</button>
+      </div>
+
+      <h3>状态</h3>
+      <div id="stats" class="stats"></div>
+      <h3>V2X 事件</h3>
+      <ul id="events"></ul>
+    </aside>
+  </main>
+
+  <script src="/static/app.js?v=20260714b"></script>
+</body>
+</html>

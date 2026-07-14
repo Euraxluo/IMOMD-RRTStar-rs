@@ -24,12 +24,16 @@
 3. `cargo test` 与 `python -m unittest discover test` 全绿
 4. 大规模 OSM 地图（Seattle）行为与原版定性一致（允许数值微小差异）
 
+**实现状态（2026-07-14）：** Phase 1–10 均已实现并进入回归状态。Seattle
+原始数据不是仓库内置资产，因此对应测试保留为 ignored/可选；FRB、quincy、
+fake map、custom YAML、Python、V2X 和 C++ 差分均可在本地自动验证。
+
 ## 2. 架构概览
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    Python API (pyo3)                     │
-│  ImomdPlanner, RoadGraph, PlanningResult, Config        │
+│  ImomdPlanner, maps, TrafficGraph, Result, Config       │
 └────────────────────────┬────────────────────────────────┘
                          │
 ┌────────────────────────▼────────────────────────────────┐
@@ -135,10 +139,9 @@ pub fn bearing(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64;
 6. `update_path()` — 根据访问顺序拼接路径
 
 **Rust 优化点：**
-- `std::thread` + `crossbeam-channel` 替代 `pthread` + `pthread_cond`
-- `rayon` 并行扩展独立树层
+- `rayon` 并行扫描每棵树的 expandable 候选；共享的重连与距离矩阵提交保持顺序，避免锁竞争
 - `rand` crate + 可复现种子
-- `parking_lot::Mutex` 替代 `pthread_mutex`
+- Python/Web 层按时间片调用 `run_for`，无需复刻 C++ 的打印线程和条件变量
 
 **Anytime 接口：**
 
@@ -151,14 +154,18 @@ pub trait AnytimePlanner {
 }
 ```
 
+动态路权通过 `ImomdRrtStar::update_graph()` 更新：节点身份与坐标必须稳定；
+仍合法的树枝被保留并按新边权重算 cost，经过删除边的子树被剪除，随后重建
+expandables、树间连接和 RTSP 状态。这是 V2X warm-start 的核心契约。
+
 ### 3.5 `rtsp` — ECI-Gen 求解器
 
 对应原版 `EciGenSolver`：
 
 ```rust
 pub trait RtspSolver {
-    fn solve(&self, distance_matrix: &[Vec<f64>], settings: &RtspSettings)
-        -> Vec<usize>;  // tree id 访问顺序
+    fn solve(&mut self, distance_matrix: &DistanceMatrix,
+             source_id: usize, target_id: usize) -> RtspSolution;
 }
 ```
 
@@ -197,7 +204,9 @@ pub struct OsmMapLoader { pub path: PathBuf, pub filter: OsmFilter }  // P1
 - `BiAstar` — 双向 A*
 - `AnaStar` — ANA*
 
-接口与 `ImomdRrtStar` 共享 `AnytimePlanner` trait。
+两种 baseline 共享同步 `BaselinePlanner` contract，并复用相同的 destination
+distance matrix、ECI-Gen 与 `ExperimentLog`。可暂停/增量更新是 IMOMD 的
+`AnytimePlanner` 扩展，不伪装成 baseline 已有的能力。
 
 ### 3.9 `python` — PyO3 绑定
 
@@ -216,6 +225,11 @@ print(result.path, result.cost)
 - `FakeMap` — 测试地图构造
 - `AlgorithmConfig` — YAML 配置
 - `PlanningResult` — 结果（path, cost, visit_order）
+- `CustomGraph` / `OsmMap` / `AdjacencyGraph` — 地图入口
+- `TrafficGraph` / `GraphUpdateStats` — 动态路权与树复用统计
+
+包使用 PEP 561 布局（`__init__.pyi` + `py.typed`），声明所有公开 Python
+类型、TypedDict 返回值和 overload 构造方式。
 
 ## 4. 测试策略 (TDD)
 
@@ -223,11 +237,11 @@ print(result.path, result.cost)
 
 | 测试文件 | 覆盖 |
 |----------|------|
-| `geo_tests.rs` | haversine 与 C++ 参考值对比 |
-| `graph_tests.rs` | fake_map_1/2 节点数、边权重 |
-| `tree_tests.rs` | RRT 树增删、cost 传播、rewire |
-| `rtsp_tests.rs` | 小矩阵 TSP 已知最优解 |
-| `config_tests.rs` | YAML 解析与原版 config 兼容 |
+| 模块内 `#[cfg(test)]` | geo、graph、traffic、map、tree、RTSP、baseline、config |
+| `tests/planner_fake_map.rs` | 三种规划器的 fake/bugtrap 路径 |
+| `tests/correctness_oracle.rs` | 精确 oracle、路径不变量、pseudo/GA、warm-start |
+| `tests/integration_{osm,custom_graph,large_scale}.rs` | 地图与规模集成 |
+| `tests/experiment_regression.rs` | anytime 单调性与 C++ CSV |
 
 ### 4.2 集成测试
 
@@ -246,16 +260,16 @@ print(result.path, result.cost)
 ### 4.4 开发顺序 (TDD 红绿重构)
 
 ```
-Phase 1: types + geo + graph + fake_map     ← 当前
-Phase 2: rrt::tree + tree unit tests
-Phase 3: rrt::planner (单目标 RRT* 退化测试)
-Phase 4: 多树 + 距离矩阵
-Phase 5: rtsp::greedy + rtsp::eci_gen
-Phase 6: system 编排 + anytime
-Phase 7: config + CLI
-Phase 8: OSM loader
-Phase 9: baseline
-Phase 10: Python 绑定完善
+[x] Phase 1: types + geo + graph + fake_map
+[x] Phase 2: rrt::tree + tree unit tests
+[x] Phase 3: rrt::planner (单目标 RRT* 退化测试)
+[x] Phase 4: 多树 + 距离矩阵
+[x] Phase 5: rtsp::greedy + rtsp::eci_gen
+[x] Phase 6: system 编排 + anytime
+[x] Phase 7: config + CLI
+[x] Phase 8: OSM loader
+[x] Phase 9: baseline
+[x] Phase 10: Python 绑定、类型声明与 V2X 集成
 ```
 
 ## 5. 依赖选型
@@ -267,13 +281,12 @@ serde_yaml = "0.9"
 rand = "0.8"
 rustc-hash = "2"
 thiserror = "1"
-parking_lot = "0.12"
-crossbeam-channel = "0.5"
 rayon = "1.10"
-pyo3 = { version = "0.18", features = ["extension-module"] }
+pyo3 = { version = "0.23", features = ["extension-module"] }
 clap = { version = "4", features = ["derive"] }
 log = "0.4"
 env_logger = "0.10"
+quick-xml = "0.37"
 
 [dev-dependencies]
 approx = "0.5"
@@ -301,12 +314,14 @@ pub enum PlannerError {
 
 | 方面 | 原版 C++ | Rust 复现 |
 |------|----------|-----------|
-| 并发 | pthread + cond/mutex | thread + crossbeam-channel |
+| 并发 | pthread + cond/mutex | Rayon 并行只读候选扫描；状态提交顺序执行 |
 | 哈希表 | `std::unordered_map` | `FxHashMap` |
 | YAML | ryml | serde_yaml |
 | 日志 | 自定义 debugger | log + env_logger |
-| CSV 输出 | 自定义 CSVFile | csv crate 或手写 |
-| 距离矩阵 | `vector<vector<shared_ptr<...>>>` | `Vec<Vec<Option<f64>>>` |
+| CSV 输出 | 自定义 CSVFile | `ExperimentLog` 手写兼容格式 |
+| 距离矩阵 | `vector<vector<shared_ptr<...>>>` | `Vec<Vec<f64>>` + `INFINITY` |
+| 动态路权 | 无 | traffic overlay + 树状态 warm-start |
+| WebSocket | 无 | 单一后台 V2X 调度器，多客户端广播 |
 
 算法逻辑保持与原版一致，允许浮点累加顺序导致的微小数值差异。
 
@@ -320,11 +335,13 @@ src/
   types/mod.rs
   geo/mod.rs
   graph/mod.rs
+  graph/traffic.rs
   map/{mod.rs, fake.rs, osm.rs}
   config/mod.rs
   rrt/{mod.rs, tree.rs, planner.rs}
   rtsp/{mod.rs, greedy.rs, eci_gen.rs}
   baseline/{mod.rs, bi_astar.rs, ana_star.rs}
+  experiment/mod.rs
   system/mod.rs
   python/mod.rs
   command/mod.rs
@@ -334,13 +351,21 @@ tests/
   graph_tests.rs
   tree_tests.rs
   config_tests.rs
+  correctness_oracle.rs
+  experiment_regression.rs
 config/
   algorithm_config.yaml
   osm_way_config.yaml
 python/IMOMD_RRTStar/
   __init__.py
-  IMOMD_RRTStar.pyi
+  __init__.pyi
+  py.typed
 test/
   test_planner.py
-  test_fake_map.py
+demo/
+  app/{main.py,verify.py,v2x_sim.py}
+  static/{index.html,app.js,style.css}
+scripts/
+  compare_cpp_reference.py
+  test_demo_api.py
 ```

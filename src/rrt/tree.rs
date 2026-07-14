@@ -38,24 +38,27 @@ impl RrtTree {
     }
 
     /// Propagate cost update from `rewired_node` to all descendants.
+    /// Returns visited nodes in BFS order (rewired node first), matching C++ `updateCost`.
     pub fn update_cost(&mut self, rewired_node: NodeId, new_cost: f64) -> Vec<NodeId> {
         let old_cost = *self.cost.get(&rewired_node).unwrap_or(&0.0);
         let delta = new_cost - old_cost;
-        self.cost.insert(rewired_node, new_cost);
 
-        let mut updated = vec![rewired_node];
-        let mut queue = vec![rewired_node];
-        while let Some(parent) = queue.pop() {
+        let mut updated = Vec::new();
+        let mut queue = std::collections::VecDeque::from([rewired_node]);
+        while let Some(parent) = queue.pop_front() {
+            updated.push(parent);
             if let Some(kids) = self.children.get(&parent) {
                 for &child in kids {
-                    if let Some(c) = self.cost.get_mut(&child) {
-                        *c += delta;
-                        updated.push(child);
-                        queue.push(child);
-                    }
+                    queue.push_back(child);
                 }
             }
         }
+        for &node in &updated {
+            if let Some(c) = self.cost.get_mut(&node) {
+                *c += delta;
+            }
+        }
+        self.cost.insert(rewired_node, new_cost);
         updated
     }
 

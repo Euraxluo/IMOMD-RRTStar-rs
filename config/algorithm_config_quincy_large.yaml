@@ -1,0 +1,33 @@
+general:
+  system: 0
+  pseudo: 0
+  log_data: 1
+  print_path: 0
+  max_iter: 200000
+  max_time: 60
+
+rrt_params:
+  goal_bias: 1.0
+  random_seed: 0
+
+# Destinations are graph indices; regenerate with pick_many_spread_destinations().
+# This config uses quincy.osm as a large-scale substitute when Seattle.osm is unavailable.
+destinations:
+  source_id: 0
+  objective_ids: [1138, 2276, 3414, 4552, 5690, 6828, 7966, 9104]
+  target_id: 11385
+
+map:
+  type: 1
+  path: tmp/imomd-cpp/osm_data/
+  name: quincy.osm
+
+rtsp_settings:
+  shortcut: 1
+  swapping: 1
+  genetic: 1
+  ga:
+    random_seed: 0
+    mutation_iter: 100
+    population: 100
+    generation: 2

@@ -73,19 +73,19 @@ fn load_map_2() -> Result<AdjacencyGraph> {
         Location::new(6, 0.0, -1.1),
     ];
 
-    let edges: Vec<Vec<(usize, usize)>> = vec![
-        vec![(0, 1), (0, 2)],
-        vec![(1, 0), (1, 2)],
-        vec![(2, 0), (2, 1), (2, 3), (2, 4)],
-        vec![(3, 2), (3, 5)],
-        vec![(4, 2), (4, 5)],
-        vec![(5, 3), (5, 4), (5, 6)],
-        vec![(6, 5)],
+    let edges: Vec<Vec<usize>> = vec![
+        vec![1, 2],
+        vec![0, 2],
+        vec![0, 1, 3, 4],
+        vec![2, 5],
+        vec![2, 5],
+        vec![3, 4, 6],
+        vec![5],
     ];
 
     let mut adj: Vec<FxHashMap<usize, f64>> = vec![FxHashMap::default(); nodes.len()];
-    for (from, pairs) in edges.into_iter().enumerate() {
-        for (to, _) in pairs {
+    for (from, neighbors) in edges.into_iter().enumerate() {
+        for to in neighbors {
             adj[from].insert(to, edge_weight(&nodes[from], &nodes[to]));
         }
     }

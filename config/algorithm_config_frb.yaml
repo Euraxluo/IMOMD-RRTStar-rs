@@ -1,0 +1,31 @@
+general:
+  system: 0
+  pseudo: 0
+  log_data: 0
+  print_path: 0
+  max_iter: 50000
+  max_time: 15
+
+rrt_params:
+  goal_bias: 1.0
+  random_seed: 0
+
+destinations:
+  source_id: 0
+  objective_ids: [643, 1351]
+  target_id: 1964
+
+map:
+  type: 1
+  path: tmp/imomd-cpp/osm_data/
+  name: FRB.osm
+
+rtsp_settings:
+  shortcut: 1
+  swapping: 1
+  genetic: 0
+  ga:
+    random_seed: 0
+    mutation_iter: 10
+    population: 10
+    generation: 1

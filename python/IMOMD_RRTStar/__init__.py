@@ -1,8 +1,32 @@
 """High-level Python wrapper for IMOMD-RRTStar Rust core."""
 
-from .IMOMD_RRTStar import FakeMap, ImomdPlanner, PlanningResult, AdjacencyGraph
+from __future__ import annotations
 
-__all__ = ["FakeMap", "ImomdPlanner", "PlanningResult", "AdjacencyGraph"]
+from ._imomd_native import (
+    AdjacencyGraph,
+    AlgorithmConfig,
+    CustomGraph,
+    FakeMap,
+    GraphUpdateStats,
+    ImomdPlanner,
+    OsmMap,
+    PlanningResult,
+    TrafficGraph,
+)
+
+__all__ = [
+    "FakeMap",
+    "AlgorithmConfig",
+    "GraphUpdateStats",
+    "CustomGraph",
+    "TrafficGraph",
+    "ImomdPlanner",
+    "PlanningResult",
+    "AdjacencyGraph",
+    "OsmMap",
+    "plan_fake_map",
+]
+
 
 def plan_fake_map(
     map_type: int = -1,

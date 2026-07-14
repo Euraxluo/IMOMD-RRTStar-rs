@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::baseline::{AnaStar, BaselinePlanner, BiAstar};
-use crate::config::AlgorithmConfig;
+use crate::config::{AlgorithmConfig, OsmWayConfig};
 use crate::error::{PlannerError, Result};
 use crate::graph::AdjacencyGraph;
-use crate::map::{FakeMapLoader, MapLoader};
+use crate::map::{CustomGraphLoader, FakeMapLoader, MapLoader, OsmMapLoader};
 use crate::rrt::ImomdRrtStar;
 use crate::types::{Destinations, PlannerSystem, PlanningResult};
 
@@ -24,20 +24,19 @@ impl PlanningSystem {
                 Arc::new(loader.load()?)
             }
             0 => {
-                return Err(PlannerError::MapLoad(
-                    "custom graph parser not yet implemented".into(),
-                ))
+                let graph_path = std::path::Path::new(&config.map.path).join(&config.map.name);
+                let loader = CustomGraphLoader::new(graph_path);
+                Arc::new(loader.load()?)
             }
             1 => {
-                return Err(PlannerError::MapLoad(
-                    "OSM loader not yet implemented (Phase 8)".into(),
-                ))
+                let osm_config_path = std::path::Path::new("config/osm_way_config.yaml");
+                let osm_cfg = OsmWayConfig::from_yaml_file(osm_config_path)?;
+                let filter = osm_cfg.filter_properties()?;
+                let osm_path = std::path::Path::new(&config.map.path).join(&config.map.name);
+                let loader = OsmMapLoader::new(osm_path, filter);
+                Arc::new(loader.load()?)
             }
-            other => {
-                return Err(PlannerError::MapLoad(format!(
-                    "invalid map type: {other}"
-                )))
-            }
+            other => return Err(PlannerError::MapLoad(format!("invalid map type: {other}"))),
         };
 
         let destinations = Destinations {
@@ -56,6 +55,10 @@ impl PlanningSystem {
     pub fn from_yaml(path: &std::path::Path) -> Result<Self> {
         let config = AlgorithmConfig::from_yaml_file(path)?;
         Self::from_config(config)
+    }
+
+    pub fn print_path_enabled(&self) -> bool {
+        self.config.general.print_path != 0
     }
 
     pub fn run(&mut self) -> Result<PlanningResult> {
@@ -79,7 +82,7 @@ impl PlanningSystem {
                     Arc::clone(&self.graph),
                     self.destinations.clone(),
                     self.config.clone(),
-                );
+                )?;
                 planner.find_shortest_path()
             }
             PlannerSystem::AnaStar => {
@@ -87,7 +90,7 @@ impl PlanningSystem {
                     Arc::clone(&self.graph),
                     self.destinations.clone(),
                     self.config.clone(),
-                );
+                )?;
                 planner.find_shortest_path()
             }
         }
@@ -97,6 +100,22 @@ impl PlanningSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_from_custom_graph_config() {
+        let cfg = AlgorithmConfig::from_yaml_str(
+            r#"
+general: { system: 0, pseudo: 0, log_data: 0, print_path: 0, max_iter: 1000, max_time: 10 }
+rrt_params: { goal_bias: 1.0, random_seed: 0 }
+destinations: { source_id: 0, objective_ids: [1], target_id: 2 }
+map: { type: 0, path: tests/fixtures/, name: custom_graph.yaml }
+rtsp_settings: { shortcut: 1, swapping: 1, genetic: 0, ga: { random_seed: 0, mutation_iter: 10, population: 10, generation: 1 } }
+"#,
+        )
+        .unwrap();
+        let system = PlanningSystem::from_config(cfg);
+        assert!(system.is_ok());
+    }
 
     #[test]
     fn system_from_fake_map_config() {
@@ -112,5 +131,21 @@ rtsp_settings: { shortcut: 1, swapping: 1, genetic: 1, ga: { random_seed: 0, mut
         .unwrap();
         let system = PlanningSystem::from_config(cfg);
         assert!(system.is_ok());
+    }
+
+    #[test]
+    fn print_path_flag_is_exposed_to_cli() {
+        let cfg = AlgorithmConfig::from_yaml_str(
+            r#"
+general: { system: 0, pseudo: 0, log_data: 0, print_path: 1, max_iter: 1, max_time: 1 }
+rrt_params: { goal_bias: 1.0, random_seed: 0 }
+destinations: { source_id: 0, objective_ids: [1], target_id: 2 }
+map: { type: -1, path: "", name: "" }
+rtsp_settings: { shortcut: 1, swapping: 1, genetic: 0, ga: { random_seed: 0, mutation_iter: 10, population: 10, generation: 1 } }
+"#,
+        )
+        .unwrap();
+        let system = PlanningSystem::from_config(cfg).unwrap();
+        assert!(system.print_path_enabled());
     }
 }

@@ -37,7 +37,7 @@ impl Command {
             println!("RUST_VERBOSE_LOG: {}", level_verbose);
             // Converts a string to the corresponding log-level enumeration
             let level = if let (Ok(level1), Ok(level2)) =
-                (Level::from_str(&level_env), Level::from_str(&level_verbose))
+                (Level::from_str(&level_env), Level::from_str(level_verbose))
             {
                 // Use the cmp method to compare the sizes of the two log levels
                 match level1.cmp(&level2) {

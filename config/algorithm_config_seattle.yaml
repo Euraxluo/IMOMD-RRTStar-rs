@@ -1,0 +1,37 @@
+general:
+  system: 0
+  pseudo: 0
+  log_data: 1
+  print_path: 0
+  max_iter: 1000000
+  max_time: 60
+
+rrt_params:
+  goal_bias: 1.0
+  random_seed: 0
+
+# Node indices into the parsed OSM graph (not raw OSM node ids).
+# Requires Seattle.osm from the C++ repo Google Drive bundle.
+destinations:
+  source_id: 486234
+  objective_ids: [433402, 426716, 617432, 887981, 469267,
+                  660438, 271555, 209507, 814027, 538265,
+                  112753, 398120, 623085, 782523, 289206,
+                  377816, 367108, 401203, 725126, 870459,
+                  323008, 525033, 594246]
+  target_id: 683162
+
+map:
+  type: 1
+  path: tmp/imomd-cpp/osm_data/
+  name: Seattle.osm
+
+rtsp_settings:
+  shortcut: 1
+  swapping: 1
+  genetic: 1
+  ga:
+    random_seed: 0
+    mutation_iter: 10000
+    population: 1000
+    generation: 5
