@@ -262,14 +262,14 @@ class DemoState:
             "algorithms": [
                 {
                     "id": "race",
-                    "name": "赛跑：贪心 + IMOMD + Exact",
+                    "name": "Race: greedy + IMOMD + exact",
                     "available": True,
                 },
-                {"id": "imomd", "name": "IMOMD-RRT*（赛跑车道）", "available": True},
-                {"id": "greedy", "name": "Greedy（赛跑车道）", "available": True},
+                {"id": "imomd", "name": "IMOMD-RRT* (race lane)", "available": True},
+                {"id": "greedy", "name": "Greedy (race lane)", "available": True},
                 {
                     "id": "exact",
-                    "name": "Exact Dijkstra+TSP（≤8 途经）",
+                    "name": "Exact Dijkstra+TSP (≤8 waypoints)",
                     "available": True,
                 },
                 {"id": "lpa_star", "name": "LPA*", "available": False},
@@ -283,22 +283,22 @@ def available_maps() -> list[dict[str, str]]:
         {
             "key": "chicago_mega",
             "name": "Chicago Mega Grid 80×64",
-            "description": "芝加哥风格超大正交路网（含河岸桥梁与快速路），约 5000+ 节点",
+            "description": "Chicago-style mega grid with river bridges and expressways (~5000+ nodes)",
         },
         {
             "key": "city_large",
             "name": "Synthetic City 24×18",
-            "description": "非 OSM 中等网格/快速路任务，适合快速观察绕行",
+            "description": "Medium synthetic grid/expressway map for quick detour demos",
         },
         {
             "key": "osm_or_fake",
             "name": "OSM FRB2 / fake fallback",
-            "description": "优先加载本地 OSM；缺失时回退到 bugtrap fake map",
+            "description": "Prefer local OSM; fall back to the bugtrap fake map if missing",
         },
         {
             "key": "bugtrap",
             "name": "Fake bugtrap",
-            "description": "小型经典陷阱图，便于做算法回归检查",
+            "description": "Small classic trap map for algorithm regression checks",
         },
     ]
     chicago_osm = ROOT / "tmp" / "osm_data" / "chicago_downtown.osm"
@@ -308,7 +308,7 @@ def available_maps() -> list[dict[str, str]]:
             {
                 "key": "chicago_osm",
                 "name": "Chicago Downtown OSM",
-                "description": "真实 OSM 芝加哥市区路网（本地 tmp/osm_data/chicago_downtown.osm）",
+                "description": "Real OSM extract of downtown Chicago (tmp/osm_data/chicago_downtown.osm)",
             },
         )
     return maps
@@ -529,7 +529,7 @@ async def _v2x_loop() -> None:
                 }
         except ValueError as exc:
             async with state_lock:
-                state.log(f"V2X: 当前路况下无可用路线: {exc}")
+                state.log(f"V2X: no feasible route under current traffic: {exc}")
                 payload = {
                     "type": "no_route",
                     "event": event_message,
@@ -670,7 +670,7 @@ async def set_destinations(body: DestinationsBody) -> dict[str, Any]:
         )
     except ValueError as exc:
         async with state_lock:
-            state.log(f"规划失败: {exc}")
+            state.log(f"Planning failed: {exc}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -681,7 +681,7 @@ async def auto_destinations() -> dict[str, Any]:
         view = state.traffic.export_view()
         src, objs, tgt = pick_spread_destinations(view["edges"], state.traffic.node_count)
         destinations = DestinationsBody(source=src, objectives=objs, target=tgt)
-        state.log(f"智能推荐路线: {src} → {objs} → {tgt}")
+        state.log(f"Smart route: {src} → {objs} → {tgt}")
     try:
         result = await asyncio.to_thread(
             _planner_call, lambda: state.replace_destinations(destinations, 0.15)
@@ -689,7 +689,7 @@ async def auto_destinations() -> dict[str, Any]:
         return {"destinations": destinations.model_dump(), **result}
     except ValueError as exc:
         async with state_lock:
-            state.log(f"规划失败: {exc}")
+            state.log(f"Planning failed: {exc}")
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -706,7 +706,7 @@ async def set_edge_traffic(body: EdgeTrafficBody) -> dict[str, Any]:
         return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
     except ValueError as exc:
         async with state_lock:
-            state.log(f"当前路况下无可用路线: {exc}")
+            state.log(f"No feasible route under current traffic: {exc}")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -728,7 +728,7 @@ async def set_edges_traffic(body: EdgeListTrafficBody) -> dict[str, Any]:
         return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
     except ValueError as exc:
         async with state_lock:
-            state.log(f"当前路况下无可用路线: {exc}")
+            state.log(f"No feasible route under current traffic: {exc}")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
@@ -745,7 +745,7 @@ async def set_zone_traffic(body: ZoneTrafficBody) -> dict[str, Any]:
         return await asyncio.to_thread(_planner_call, lambda: state.replan(1.0))
     except ValueError as exc:
         async with state_lock:
-            state.log(f"当前路况下无可用路线: {exc}")
+            state.log(f"No feasible route under current traffic: {exc}")
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 

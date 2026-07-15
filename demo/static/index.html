@@ -1,16 +1,16 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>IMOMD-RRT* · Realtime Nav</title>
-  <link rel="stylesheet" href="/static/style.css?v=20260714e" />
+  <link rel="stylesheet" href="/static/style.css?v=20260715a" />
 </head>
 <body>
   <div id="loading" class="loading hidden">
     <div class="loading-card">
       <div class="spinner"></div>
-      <div id="loading-text">加载地图中…</div>
+      <div id="loading-text">Loading map…</div>
     </div>
   </div>
 
@@ -19,111 +19,111 @@
       <h1>IMOMD-RRT*</h1>
       <span class="brand-sub">Realtime · V2X · Pluggable</span>
     </div>
-    <p class="tagline">路况变化 · Anytime 改善 · 当前位置重规划 — 同一套可插拔导航会话</p>
+    <p class="tagline">Traffic updates · Anytime improvement · Ego replan — one pluggable navigation session</p>
   </header>
 
   <main>
     <section class="panel map-panel">
-      <div id="map-hint" class="map-hint">加载中…</div>
+      <div id="map-hint" class="map-hint">Loading…</div>
       <canvas id="map" width="1200" height="720"></canvas>
       <div class="legend">
-        <span class="swatch src"></span>起点
-        <span class="swatch obj"></span>途经
-        <span class="swatch tgt"></span>终点
-        <span class="swatch ego"></span>当前位置
-        <span class="swatch path-start"></span>起点→途经
-        <span class="swatch path-end"></span>途经→终点
-        <span class="swatch free"></span>畅通
-        <span class="swatch slow"></span>缓慢
-        <span class="swatch jam"></span>拥堵
+        <span class="swatch src"></span>Start
+        <span class="swatch obj"></span>Waypoint
+        <span class="swatch tgt"></span>Goal
+        <span class="swatch ego"></span>Ego
+        <span class="swatch path-start"></span>Start→waypoint
+        <span class="swatch path-end"></span>Waypoint→goal
+        <span class="swatch free"></span>Free
+        <span class="swatch slow"></span>Slow
+        <span class="swatch jam"></span>Jam
       </div>
     </section>
 
     <aside class="panel side-panel">
       <section class="stack">
-        <h2>地图</h2>
-        <label class="map-picker">选择场景
+        <h2>Map</h2>
+        <label class="map-picker">Scenario
           <select id="map-select"></select>
         </label>
         <p id="map-desc" class="hint map-desc"></p>
-        <button id="btn-smart" class="btn-primary">智能推荐路线</button>
+        <button id="btn-smart" class="btn-primary">Smart route</button>
       </section>
 
       <section class="stack">
-        <h2>交互模式</h2>
+        <h2>Interaction</h2>
         <div class="mode-tabs">
-          <button id="mode-route" class="mode active" data-mode="route">选路线</button>
-          <button id="mode-traffic" class="mode" data-mode="traffic">框选路况</button>
-          <button id="mode-ego" class="mode" data-mode="ego">设当前位置</button>
+          <button id="mode-route" class="mode active" data-mode="route">Pick route</button>
+          <button id="mode-traffic" class="mode" data-mode="traffic">Draw traffic</button>
+          <button id="mode-ego" class="mode" data-mode="ego">Set ego</button>
         </div>
 
         <div id="route-guide" class="guide-box">
-          <div id="route-step" class="guide-step">第 1 步：点击<strong>起点</strong></div>
+          <div id="route-step" class="guide-step">Step 1: click the <strong>start</strong></div>
           <div class="route-badges">
-            <span id="badge-src" class="badge src">起点 —</span>
-            <span id="badge-obj" class="badge obj">途经 —</span>
-            <span id="badge-tgt" class="badge tgt">终点 —</span>
+            <span id="badge-src" class="badge src">Start —</span>
+            <span id="badge-obj" class="badge obj">Waypoints —</span>
+            <span id="badge-tgt" class="badge tgt">Goal —</span>
           </div>
           <div class="row route-actions">
-            <button id="btn-finish-objectives" class="btn-accent hidden">选好途经，点终点</button>
-            <button id="btn-reset-route" class="btn-ghost">重新选点</button>
+            <button id="btn-finish-objectives" class="btn-accent hidden">Waypoints done — pick goal</button>
+            <button id="btn-reset-route" class="btn-ghost">Reset picks</button>
           </div>
         </div>
 
         <div id="traffic-guide" class="guide-box hidden">
-          <p class="hint">围出多边形选中 lane，再应用路况</p>
+          <p class="hint">Draw a polygon (≥3 points) to select lanes, then apply traffic</p>
           <select id="level">
-            <option value="slow">缓慢 ×2.5</option>
-            <option value="jam">拥堵 ×5</option>
-            <option value="blocked">封闭</option>
-            <option value="free">恢复畅通</option>
+            <option value="slow">Slow ×2.5</option>
+            <option value="jam">Jam ×5</option>
+            <option value="blocked">Blocked</option>
+            <option value="free">Clear / free</option>
           </select>
-          <div class="traffic-count" id="selected-lane-count">0 条 lane</div>
+          <div class="traffic-count" id="selected-lane-count">0 lanes</div>
           <div class="row">
-            <button id="btn-traffic-apply">应用</button>
-            <button id="btn-traffic-undo">撤销</button>
-            <button id="btn-traffic-reset">清空</button>
+            <button id="btn-traffic-apply">Apply</button>
+            <button id="btn-traffic-undo">Undo</button>
+            <button id="btn-traffic-reset">Clear</button>
           </div>
         </div>
       </section>
 
       <section class="stack">
-        <h2>实时规划</h2>
-        <label class="map-picker">算法插件
+        <h2>Realtime planning</h2>
+        <label class="map-picker">Algorithm plugin
           <select id="algo-select"></select>
         </label>
         <div class="row">
           <button id="btn-anytime-on" class="btn-accent">Anytime ON</button>
-          <button id="btn-anytime-off">暂停</button>
+          <button id="btn-anytime-off">Pause</button>
         </div>
         <canvas id="cost-chart" width="300" height="88"></canvas>
         <div class="row">
-          <button id="btn-replan">继续搜索</button>
-          <button id="btn-clear">清除路况</button>
+          <button id="btn-replan">Continue search</button>
+          <button id="btn-clear">Clear traffic</button>
         </div>
         <div class="row">
-          <button id="btn-auto-on">V2X 开启</button>
-          <button id="btn-auto-off">V2X 停止</button>
+          <button id="btn-auto-on">V2X ON</button>
+          <button id="btn-auto-off">V2X OFF</button>
         </div>
       </section>
 
       <details class="advanced">
-        <summary>高级：节点编号</summary>
-        <label>起点 <input id="src" type="number" readonly /></label>
-        <label>途经 <input id="obj" type="text" readonly placeholder="可多个，逗号分隔" /></label>
-        <label>终点 <input id="tgt" type="number" readonly /></label>
-        <button id="btn-dest">应用并重规划</button>
+        <summary>Advanced: node IDs</summary>
+        <label>Start <input id="src" type="number" readonly /></label>
+        <label>Waypoints <input id="obj" type="text" readonly placeholder="comma-separated" /></label>
+        <label>Goal <input id="tgt" type="number" readonly /></label>
+        <button id="btn-dest">Apply &amp; replan</button>
       </details>
 
       <section class="stack">
-        <h3>状态</h3>
+        <h3>Status</h3>
         <div id="stats" class="stats"></div>
-        <h3>事件</h3>
+        <h3>Events</h3>
         <ul id="events"></ul>
       </section>
     </aside>
   </main>
 
-  <script src="/static/app.js?v=20260714d"></script>
+  <script src="/static/app.js?v=20260715a"></script>
 </body>
 </html>

@@ -19,11 +19,11 @@ const trafficGuideEl = document.getElementById("traffic-guide");
 const selectedLaneCountEl = document.getElementById("selected-lane-count");
 
 const STEP_TEXT = {
-  source: "第 1 步：点击<strong>起点</strong>（绿色；点击道路附近会自动吸附）",
+  source: "Step 1: click the <strong>start</strong> (green; snaps to nearest road node)",
   objective:
-    "第 2 步：点击添加<strong>途经点</strong>（可多个，橙色），选完后点「选好途经，点终点」",
-  target: "第 3 步：点击<strong>终点</strong>（粉色），系统会自动规划",
-  done: "已选完，正在重规划…",
+    "Step 2: add <strong>waypoints</strong> (orange, multiple OK), then press “Waypoints done — pick goal”",
+  target: "Step 3: click the <strong>goal</strong> (pink); planning starts automatically",
+  done: "Selection complete — replanning…",
 };
 
 // Each destination leg has its own colour. The first two make the usual
@@ -229,7 +229,7 @@ function drawMap(snapshot) {
     let stroke = "#666";
     if (role === "src") {
       radius = 9; fill = "#4caf50"; stroke = "#fff";
-      labels.push({ p, text: "起", color: "#4caf50" });
+      labels.push({ p, text: "S", color: "#4caf50" });
     } else if (role === "obj") {
       radius = 9; fill = "#ff9800"; stroke = "#fff";
       const objs = showDraft
@@ -238,12 +238,12 @@ function drawMap(snapshot) {
       const idx = objs.indexOf(n.id);
       labels.push({
         p,
-        text: objs.length > 1 && idx >= 0 ? `经${idx + 1}` : "经",
+        text: objs.length > 1 && idx >= 0 ? `W${idx + 1}` : "W",
         color: "#ff9800",
       });
     } else if (role === "tgt") {
       radius = 9; fill = "#e91e63"; stroke = "#fff";
-      labels.push({ p, text: "终", color: "#e91e63" });
+      labels.push({ p, text: "G", color: "#e91e63" });
     } else if (isPath) {
       radius = huge ? 3 : 6; fill = "#00d4ff";
     }
@@ -274,7 +274,7 @@ function drawMap(snapshot) {
     ctx.stroke();
     ctx.fillStyle = "#fbbf24";
     ctx.font = "bold 12px system-ui";
-    ctx.fillText("我", ego.x, ego.y - 16);
+    ctx.fillText("EGO", ego.x, ego.y - 16);
   }
 }
 
@@ -288,9 +288,9 @@ function drawCostChart(snapshot) {
   c.fillRect(0, 0, chart.width, chart.height);
   c.fillStyle = "#9ca3af";
   c.font = "11px system-ui";
-  c.fillText("代价随时间改善（anytime）", 8, 14);
+  c.fillText("Cost over time (anytime)", 8, 14);
   if (history.length < 2) {
-    c.fillText("等待路径改善…", 8, 48);
+    c.fillText("Waiting for path improvements…", 8, 48);
     return;
   }
   const costs = history.map((h) => h.cost).filter((x) => Number.isFinite(x));
@@ -325,23 +325,23 @@ function setMode(mode) {
 
 function updateMapHint() {
   if (!state) {
-    mapHintEl.textContent = "加载中…";
+    mapHintEl.textContent = "Loading…";
     return;
   }
   if (interactionMode === "route") {
-    mapHintEl.innerHTML = STEP_TEXT[routeStep] || "路线已选定";
+    mapHintEl.innerHTML = STEP_TEXT[routeStep] || "Route selected";
   } else if (interactionMode === "ego") {
-    mapHintEl.textContent = "当前位置模式：点击地图节点，从该处重新规划剩余路程";
+    mapHintEl.textContent = "Ego mode: click a map node to replan the remaining trip from there";
   } else if (trafficPolygon.length < 3) {
-    mapHintEl.textContent = "路况模式：点击地图围出一个区域（至少 3 个点）";
+    mapHintEl.textContent = "Traffic mode: click the map to outline a region (≥3 points)";
   } else {
-    mapHintEl.textContent = `已选 ${selectedTrafficEdges.length} 条 lane，点击「应用路况」触发重规划`;
+    mapHintEl.textContent = `${selectedTrafficEdges.length} lanes selected — click Apply to replan`;
   }
 }
 
 function updateTrafficUI() {
   if (selectedLaneCountEl) {
-    selectedLaneCountEl.textContent = `${selectedTrafficEdges.length} 条 lane`;
+    selectedLaneCountEl.textContent = `${selectedTrafficEdges.length} lanes`;
   }
   updateMapHint();
 }
@@ -353,19 +353,19 @@ function updateRouteUI() {
     objField.value = objs.join(",");
   }
   const objLabel = objs.length
-    ? `途经 ${objs.map((x) => `#${x}`).join(" ")}`
-    : "途经 —";
-  routeStepEl.innerHTML = STEP_TEXT[routeStep] || "✓ 路线已更新，查看地图上的彩色路径";
+    ? `Waypoints ${objs.map((x) => `#${x}`).join(" ")}`
+    : "Waypoints —";
+  routeStepEl.innerHTML = STEP_TEXT[routeStep] || "✓ Route updated — see the colored path on the map";
   document.getElementById("badge-src").textContent =
-    draftRoute.source != null ? `起点 #${draftRoute.source}` : "起点 —";
+    draftRoute.source != null ? `Start #${draftRoute.source}` : "Start —";
   document.getElementById("badge-obj").textContent = objLabel;
   document.getElementById("badge-tgt").textContent =
-    draftRoute.target != null ? `终点 #${draftRoute.target}` : "终点 —";
+    draftRoute.target != null ? `Goal #${draftRoute.target}` : "Goal —";
   const finishBtn = document.getElementById("btn-finish-objectives");
   if (finishBtn) {
     const show = routeStep === "objective" && objs.length >= 1;
     finishBtn.classList.toggle("hidden", !show);
-    finishBtn.textContent = `选好途经（${objs.length}），点终点`;
+    finishBtn.textContent = `Waypoints done (${objs.length}) — pick goal`;
   }
   updateMapHint();
 }
@@ -388,35 +388,35 @@ function syncFromServer(snapshot) {
 function renderStats(snapshot) {
   const v = snapshot.verification || {};
   const verifyLine = v.ok
-    ? `<div class="verify ok"><b>校验</b> ✓ ${v.message}</div>`
+    ? `<div class="verify ok"><b>Verify</b> ✓ ${v.message}</div>`
     : v.message
-      ? `<div class="verify fail"><b>校验</b> ✗ ${v.message}</div>`
+      ? `<div class="verify fail"><b>Verify</b> ✗ ${v.message}</div>`
       : "";
   const update = snapshot.tree_update;
   const replanText = snapshot.replan_mode === "warm_start" && update
-    ? `增量复用（保留 ${update.retained_tree_nodes}/${update.previous_tree_nodes} 个树节点）`
+    ? `Warm-start (kept ${update.retained_tree_nodes}/${update.previous_tree_nodes} tree nodes)`
     : snapshot.replan_mode === "race"
-      ? "赛跑（谁先出解显示谁，更优才覆盖）"
+      ? "Race (first feasible wins; only better cost replaces)"
     : snapshot.replan_mode === "resume"
-      ? "继续 anytime 搜索"
+      ? "Anytime continue search"
       : snapshot.replan_mode === "ego_reseed"
-        ? "从当前位置重规划"
-        : "新建搜索";
+        ? "Replan from ego pose"
+        : "Fresh search";
   const algoLabel = {
-    race: "赛跑编排",
+    race: "Race orchestrator",
     imomd: "IMOMD-RRT*",
-    greedy: "Greedy 贪心",
-    exact: "Exact 精确最优",
+    greedy: "Greedy",
+    exact: "Exact (Dijkstra+TSP)",
   }[snapshot.algorithm_id] || (snapshot.algorithm_id || "imomd");
   statsEl.innerHTML = `
-    <div><b>地图</b> ${snapshot.map_name} (${snapshot.node_count} 节点)</div>
-    <div><b>当前解来自</b> ${algoLabel}</div>
-    <div><b>路径代价</b> ${snapshot.cost != null ? snapshot.cost.toFixed(1) + " m" : "—"}</div>
-    <div><b>Dijkstra 最优</b> ${v.oracle_cost != null ? v.oracle_cost.toFixed(1) + " m" : "—"}</div>
-    <div><b>当前位置</b> #${snapshot.ego_node ?? "—"}</div>
-    <div><b>Anytime</b> ${snapshot.auto_anytime ? "改善中" : "已暂停"}</div>
-    <div><b>V2X 模拟</b> ${snapshot.auto_v2x ? "运行中" : "已停止"}</div>
-    <div><b>重规划模式</b> ${replanText}</div>
+    <div><b>Map</b> ${snapshot.map_name} (${snapshot.node_count} nodes)</div>
+    <div><b>Solution from</b> ${algoLabel}</div>
+    <div><b>Path cost</b> ${snapshot.cost != null ? snapshot.cost.toFixed(1) + " m" : "—"}</div>
+    <div><b>Dijkstra oracle</b> ${v.oracle_cost != null ? v.oracle_cost.toFixed(1) + " m" : "—"}</div>
+    <div><b>Ego</b> #${snapshot.ego_node ?? "—"}</div>
+    <div><b>Anytime</b> ${snapshot.auto_anytime ? "improving" : "paused"}</div>
+    <div><b>V2X sim</b> ${snapshot.auto_v2x ? "running" : "stopped"}</div>
+    <div><b>Replan mode</b> ${replanText}</div>
     ${verifyLine}
   `;
   eventsEl.innerHTML = (snapshot.events || [])
@@ -433,14 +433,14 @@ function renderAlgoSelect(snapshot) {
   select.innerHTML = snapshot.algorithms
     .map((algo) => {
       const disabled = algo.available ? "" : "disabled";
-      const label = algo.available ? algo.name : `${algo.name}（待接入）`;
+      const label = algo.available ? algo.name : `${algo.name} (coming soon)`;
       const selected = algo.id === (snapshot.algorithm_id || "imomd") ? "selected" : "";
       return `<option value="${algo.id}" ${disabled} ${selected}>${label}</option>`;
     })
     .join("");
 }
 
-function setLoading(on, text = "加载地图中…") {
+function setLoading(on, text = "Loading map…") {
   const el = document.getElementById("loading");
   const label = document.getElementById("loading-text");
   if (!el) return;
@@ -504,7 +504,7 @@ async function postJson(url, body, { loadingText } = {}) {
     });
     if (!res.ok) {
       const err = await res.text();
-      alert(`操作失败：${err || res.statusText}\n\n建议点击「智能推荐路线」`);
+      alert(`Request failed: ${err || res.statusText}\n\nTry Smart route`);
       await fetchState();
       return null;
     }
@@ -525,7 +525,7 @@ async function submitRoute(source, objectives, target) {
       objectives: objs,
       target,
     },
-    { loadingText: "规划路线中…" },
+    { loadingText: "Planning route…" },
   );
 }
 
@@ -534,7 +534,7 @@ async function switchMap(mapKey) {
   const data = await postJson(
     `${API}/api/map`,
     { map_key: mapKey },
-    { loadingText: heavy ? "加载超大城市地图并规划中…" : "切换地图中…" },
+    { loadingText: heavy ? "Loading mega-city map and planning…" : "Switching map…" },
   );
   trafficPolygon = [];
   selectedTrafficEdges = [];
@@ -574,7 +574,7 @@ canvas.addEventListener("click", async (ev) => {
       routeStep = "objective";
     } else if (routeStep === "objective") {
       if (nodeId === draftRoute.source) {
-        alert("途经点不能和起点相同");
+        alert("A waypoint cannot be the same as the start");
         return;
       }
       if (draftRoute.objectives.includes(nodeId)) {
@@ -589,7 +589,7 @@ canvas.addEventListener("click", async (ev) => {
         nodeId === draftRoute.source ||
         draftRoute.objectives.includes(nodeId)
       ) {
-        alert("终点不能和起点或途经点相同");
+        alert("Goal cannot match the start or a waypoint");
         return;
       }
       draftRoute.target = nodeId;
@@ -618,7 +618,7 @@ canvas.addEventListener("click", async (ev) => {
 });
 
 document.getElementById("btn-smart").onclick = () =>
-  postJson(`${API}/api/destinations/auto`, null, { loadingText: "智能推荐中…" });
+  postJson(`${API}/api/destinations/auto`, null, { loadingText: "Finding a smart route…" });
 
 document.getElementById("btn-reset-route").onclick = () => {
   routeStep = "source";
@@ -629,7 +629,7 @@ document.getElementById("btn-reset-route").onclick = () => {
 
 document.getElementById("btn-finish-objectives").onclick = () => {
   if (routeStep !== "objective" || !(draftRoute.objectives || []).length) {
-    alert("请先至少选一个途经点");
+    alert("Select at least one waypoint first");
     return;
   }
   routeStep = "target";
@@ -657,7 +657,7 @@ document.getElementById("btn-traffic-reset").onclick = () => {
 
 document.getElementById("btn-traffic-apply").onclick = async () => {
   if (selectedTrafficEdges.length === 0) {
-    alert("请先用至少 3 个点框选出 lane");
+    alert("Outline at least 3 points to select lanes");
     return;
   }
   const level = document.getElementById("level").value;
@@ -684,7 +684,7 @@ document.getElementById("btn-dest").onclick = () => {
     .filter((x) => Number.isFinite(x));
   const target = Number(document.getElementById("tgt").value);
   if (!objectives.length) {
-    alert("请填写至少一个途经点（可用逗号分隔多个）");
+    alert("Enter at least one waypoint (comma-separated allowed)");
     return;
   }
   return submitRoute(source, objectives, target);

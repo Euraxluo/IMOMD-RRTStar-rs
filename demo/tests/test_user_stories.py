@@ -32,13 +32,13 @@ def base_url() -> str:
 @pytest.fixture
 def page(page: Page, base_url: str) -> Page:
     page.goto(base_url)
-    page.wait_for_selector("#stats >> text=地图")
+    page.wait_for_selector("#stats >> text=Map")
     return page
 
 
 def _cost_from_stats(page: Page) -> float | None:
     text = page.locator("#stats").inner_text()
-    m = re.search(r"路径代价\s+([\d.]+)", text)
+    m = re.search(r"Path cost\s+([\d.]+)", text)
     return float(m.group(1)) if m else None
 
 
@@ -69,12 +69,12 @@ def _canvas_points(page: Page, node_ids: list[int]) -> dict[int, dict[str, float
 
 
 class TestUserStory01InitialLoad:
-    """US-01: 作为调度员，打开页面后应看到地图、初始路径代价和自动同步的目的地。"""
+    """US-01: On load, the map, path cost, and synced destinations are visible."""
 
     def test_page_title_and_map(self, page: Page) -> None:
         expect(page).to_have_title(re.compile("IMOMD-RRT"))
         expect(page.locator("canvas#map")).to_be_visible()
-        expect(page.locator("#stats")).to_contain_text("节点")
+        expect(page.locator("#stats")).to_contain_text("nodes")
 
     def test_initial_plan_has_cost(self, page: Page) -> None:
         cost = _cost_from_stats(page)
@@ -97,7 +97,7 @@ class TestUserStory01InitialLoad:
 
 
 class TestUserStory02ManualReplan:
-    """US-02: 作为调度员，点击「立即重规划」后路径代价应仍然有效。"""
+    """US-02: Continue search keeps a valid path cost."""
 
     def test_replan_button(self, page: Page) -> None:
         before = _cost_from_stats(page)
@@ -109,7 +109,7 @@ class TestUserStory02ManualReplan:
 
 
 class TestUserStory03TrafficClear:
-    """US-03: 作为路况管理员，清除路况后应恢复基础路网规划。"""
+    """US-03: Clearing traffic restores baseline planning."""
 
     def test_clear_traffic(self, page: Page) -> None:
         page.locator("#btn-clear").click()
@@ -117,17 +117,17 @@ class TestUserStory03TrafficClear:
         cost = _cost_from_stats(page)
         assert cost is not None and cost > 0
         events = page.locator("#events li").all_inner_texts()
-        assert any("Traffic cleared" in e or "清除" in e or "cleared" in e.lower() for e in events)
+        assert any("Traffic cleared" in e or "cleared" in e.lower() for e in events)
 
 
 class TestUserStory04AutoV2x:
-    """US-04: 作为 V2X 运营方，开启模拟后应收到广播事件并自动重规划。"""
+    """US-04: Enabling V2X receives broadcast events and replans."""
 
     def test_enable_auto_v2x(self, page: Page) -> None:
         page.locator("#btn-auto-on").click()
         page.wait_for_timeout(500)
-        expect(page.locator("#stats")).to_contain_text("V2X 模拟")
-        expect(page.locator("#stats")).to_contain_text("运行中")
+        expect(page.locator("#stats")).to_contain_text("V2X sim")
+        expect(page.locator("#stats")).to_contain_text("running")
 
         # WebSocket pushes every ~3s
         page.wait_for_timeout(4500)
@@ -136,11 +136,11 @@ class TestUserStory04AutoV2x:
 
         page.locator("#btn-auto-off").click()
         page.wait_for_timeout(300)
-        expect(page.locator("#stats")).to_contain_text("已停止")
+        expect(page.locator("#stats")).to_contain_text("stopped")
 
 
 class TestUserStory05UpdateDestinations:
-    """US-05: 作为路径规划师，修改起终点后应得到新路径。"""
+    """US-05: Changing destinations yields a new path."""
 
     def test_update_destinations(self, page: Page) -> None:
         src = page.locator("#src").input_value()
@@ -171,28 +171,28 @@ class TestUserStory05UpdateDestinations:
         canvas = page.locator("canvas#map")
 
         canvas.click(position=points[str(source)])
-        expect(page.locator("#route-step")).to_contain_text("第 2 步")
+        expect(page.locator("#route-step")).to_contain_text("Step 2")
         expect(page.locator("#badge-src")).to_contain_text(f"#{source}")
 
         # A WebSocket heartbeat must not erase an unfinished selection.
         page.wait_for_timeout(3300)
-        expect(page.locator("#route-step")).to_contain_text("第 2 步")
+        expect(page.locator("#route-step")).to_contain_text("Step 2")
         expect(page.locator("#badge-src")).to_contain_text(f"#{source}")
 
         canvas.click(position=points[str(objective)])
         expect(page.locator("#badge-obj")).to_contain_text(f"#{objective}")
         expect(page.locator("#btn-finish-objectives")).to_be_visible()
         page.locator("#btn-finish-objectives").click()
-        expect(page.locator("#route-step")).to_contain_text("第 3 步")
+        expect(page.locator("#route-step")).to_contain_text("Step 3")
 
         canvas.click(position=points[str(target)])
-        expect(page.locator("#route-step")).to_contain_text("正在重规划")
-        expect(page.locator("#stats")).to_contain_text("校验", timeout=5000)
+        expect(page.locator("#route-step")).to_contain_text("replanning")
+        expect(page.locator("#stats")).to_contain_text("Verify", timeout=5000)
         expect(page.locator("#stats")).to_contain_text("✓")
 
 
 class TestUserStory06PolygonLaneTraffic:
-    """US-06: 作为路况管理员，框选 lane 设置拥堵后路径应重规划。"""
+    """US-06: Polygon lane jam triggers a replan."""
 
     def test_polygon_lane_traffic(self, page: Page) -> None:
         before = _cost_from_stats(page)
